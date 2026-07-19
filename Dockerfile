@@ -8,7 +8,7 @@ COPY web/ ./
 RUN npm run build          # emits ../server/webdist
 # outDir escapes /src/web — build into a sibling dir the next stage copies.
 
-FROM golang:1.24-alpine AS build
+FROM golang:1.26-alpine AS build
 WORKDIR /src/server
 COPY server/go.mod server/go.sum ./
 RUN go mod download
