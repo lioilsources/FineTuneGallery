@@ -1,0 +1,7 @@
+.git
+data
+web/node_modules
+server/webdist
+train
+tagger
+*.md

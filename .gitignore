@@ -1,0 +1,11 @@
+.env
+data/
+server/server
+server/webdist/*
+!server/webdist/index.html
+web/node_modules/
+web/dist/
+train/.env
+train/work/
+*.log
+.DS_Store

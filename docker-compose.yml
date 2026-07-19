@@ -1,0 +1,55 @@
+# FINETUNE gallery — NAS deployment.
+#
+#   cp .env.example .env       # set DATA_DIR
+#   docker compose up -d --build
+#
+# Expose finetune.ol1n.com via Cloudflare Tunnel → http://finetune:8092
+# (add the hostname to the existing tunnel, protect with CF Access: Service
+# Auth policy for the app's service token + Allow-by-email for the browser).
+# LAN fallback: uncomment the ports mapping and point the app's FINETUNE_URL
+# at http://<nas-ip>:8092.
+
+services:
+  finetune:
+    build: .
+    image: finetune-gallery:latest
+    container_name: finetune-gallery
+    restart: unless-stopped
+    environment:
+      - FINETUNE_ADDR=:8092
+      - FINETUNE_DATA=/data
+      - TAGGER_URL=http://wd14:8000
+    volumes:
+      - ${DATA_DIR:-./data}:/data
+    # ports:
+    #   - "8092:8092"          # LAN access without the tunnel
+    networks: [finetune]
+    depends_on: [wd14]
+
+  wd14:
+    build: ./tagger
+    image: finetune-wd14:latest
+    container_name: finetune-wd14
+    restart: unless-stopped
+    environment:
+      - TAGGER_THRESHOLD=0.35
+    volumes:
+      - wd14-cache:/cache
+    networks: [finetune]
+    # CPU-only; no ports — reachable only from the finetune service.
+
+  # Uncomment if cloudflared should run here rather than elsewhere on the NAS:
+  # cloudflared:
+  #   image: cloudflare/cloudflared:latest
+  #   container_name: finetune-cloudflared
+  #   restart: unless-stopped
+  #   command: tunnel run
+  #   environment:
+  #     - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+  #   networks: [finetune]
+
+volumes:
+  wd14-cache:
+
+networks:
+  finetune:
