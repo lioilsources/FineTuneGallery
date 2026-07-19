@@ -1,0 +1,25 @@
+# Cloudflare Tunnel — finetune-nas (runs inside docker-compose on the NAS).
+# credentials.json is NOT in git — place it next to this file (see NAS deploy
+# plan / README). Tunnel + DNS + Access app provisioned 2026-07-19.
+
+tunnel: 8a88b8b7-dc02-4feb-8c64-e972aa50fd28
+credentials-file: /etc/cloudflared/credentials.json
+
+ingress:
+  # finetune.ol1n.com → Go server in the same compose network (no host port
+  # needed). Access enforcement at the connector: only requests carrying a
+  # valid CF Access JWT for the finetune app (AUD below) are proxied —
+  # defense in depth on top of the edge Access policy (same pattern as
+  # comfyui.ol1n.com in AiStack).
+  - hostname: finetune.ol1n.com
+    service: http://finetune:8092
+    originRequest:
+      connectTimeout: 30s
+      keepAliveTimeout: 300s
+      access:
+        required: true
+        teamName: ol1n
+        audTag:
+          - b251ea8d907fead50be192e7b1525d95c00ce7ddf14a2bd7b5aeca11ca50a4a4
+
+  - service: http_status:404

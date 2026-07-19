@@ -32,10 +32,14 @@ docker compose up -d --build
 curl localhost:8092/healthz     # {"status":"ok"} (odkomentuj ports v compose)
 ```
 
-Cloudflare Tunnel: přidej hostname `finetune.ol1n.com → http://finetune:8092`
-na existující tunel. CF Access aplikace se dvěma policy: **Service Auth**
-(stejný service token, který appka už posílá v hlavičkách) + **Allow** přes
-SSO e-mail pro web v prohlížeči. Server sám auth neřeší.
+Cloudflare je **předprovisionováno** (2026-07-19): dedikovaný tunel
+`finetune-nas` (`8a88b8b7-dc02-4feb-8c64-e972aa50fd28`, config v
+`cloudflared/config.yml`, běží jako služba v compose), DNS CNAME
+`finetune.ol1n.com`, Access aplikace `finetune` se dvěma policy — **Service
+Auth** (service token appky) + **Allow** (owner SSO e-mail). Jediný ruční
+krok: umístit tunnel credentials do `cloudflared/credentials.json` (není
+v gitu — viz NAS deploy plán). Server sám auth neřeší; connector navíc
+vynucuje Access JWT (audTag) jako defense in depth.
 
 Appka: `FINETUNE_URL=https://finetune.ol1n.com` (default) nebo LAN
 `FINETUNE_URL=http://<nas-ip>:8092` v `.env.local` u Ol1nLLM.

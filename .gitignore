@@ -1,6 +1,7 @@
 .env
 data/
 server/server
+cloudflared/credentials.json
 server/webdist/*
 !server/webdist/index.html
 web/node_modules/
