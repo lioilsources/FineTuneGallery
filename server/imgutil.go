@@ -33,7 +33,7 @@ func (s *server) handleThumb(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid sha256")
 		return
 	}
-	thumbPath := filepath.Join(s.dataDir, "thumbs", sha+"_384.jpg")
+	thumbPath := s.thumbPath(sha)
 	if _, err := os.Stat(thumbPath); err != nil {
 		if err := makeThumb(s.blobPath(sha), thumbPath); err != nil {
 			log.Printf("thumb %s: %v", sha[:8], err)

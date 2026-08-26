@@ -64,6 +64,7 @@ func main() {
 	mux.HandleFunc("POST /api/images/{id}/autocaption", s.handleAutocaption)
 	mux.HandleFunc("/api/aspects", s.handleAspects) // GET list + POST create
 	mux.HandleFunc("GET /api/sessions", s.handleSessions)
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleSessionDelete)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/meta", s.handleMeta)
 

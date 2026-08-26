@@ -35,7 +35,10 @@ type ManifestNode struct {
 	Origin         *string         `json:"origin"`
 	ModelID        *string         `json:"modelId"`
 	LoraName       *string         `json:"loraName"`
+	LoraStrength   *float64        `json:"loraStrength"`
+	StyleID        *string         `json:"styleId"`
 	PoseID         *string         `json:"poseId"`
+	IsRepose       *bool           `json:"isRepose"`
 	Seed           *int64          `json:"seed"`
 	NegativePrompt *string         `json:"negativePrompt"`
 	PositivePrefix *string         `json:"positivePrefix"`
@@ -100,16 +103,20 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 
 	nodeStmt, err := tx.Prepare(`
 		INSERT INTO nodes (id, session_id, parent_id, source_image_id, prompt,
-		                   origin, model_id, lora_name, pose_id, seed,
+		                   origin, model_id, lora_name, lora_strength, style_id,
+		                   pose_id, is_repose, seed,
 		                   negative_prompt, positive_prefix, width, height,
 		                   steps, cfg, denoise, sampler_name, scheduler, created_at)
-		VALUES (?, ?, ?, ?, ?, COALESCE(?, 'generated'), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, COALESCE(?, 'generated'), ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  prompt = excluded.prompt,
 		  origin = excluded.origin,
 		  model_id = COALESCE(excluded.model_id, nodes.model_id),
 		  lora_name = COALESCE(excluded.lora_name, nodes.lora_name),
+		  lora_strength = COALESCE(excluded.lora_strength, nodes.lora_strength),
+		  style_id = COALESCE(excluded.style_id, nodes.style_id),
 		  pose_id = COALESCE(excluded.pose_id, nodes.pose_id),
+		  is_repose = excluded.is_repose,
 		  seed = COALESCE(excluded.seed, nodes.seed),
 		  negative_prompt = COALESCE(excluded.negative_prompt, nodes.negative_prompt),
 		  positive_prefix = COALESCE(excluded.positive_prefix, nodes.positive_prefix),
@@ -144,7 +151,8 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 	for _, n := range m.Nodes {
 		if _, err := nodeStmt.Exec(
 			n.ID, m.Session.ID, n.ParentID, n.SourceImageID, n.Prompt,
-			n.Origin, n.ModelID, n.LoraName, n.PoseID, n.Seed,
+			n.Origin, n.ModelID, n.LoraName, n.LoraStrength, n.StyleID,
+			n.PoseID, n.IsRepose, n.Seed,
 			n.NegativePrompt, n.PositivePrefix, n.Width, n.Height,
 			n.Steps, n.Cfg, n.Denoise, n.SamplerName, n.Scheduler, n.CreatedAt,
 		); err != nil {
@@ -296,4 +304,11 @@ func (s *server) handleIngestFinalize(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) blobPath(sha string) string {
 	return filepath.Join(s.dataDir, "images", sha[:2], sha+".png")
+}
+
+// thumbPath is where handleThumb caches the 384px JPEG. Deleting a blob has to
+// take its thumbnail with it, or the next content-identical upload would serve
+// a stale tile.
+func (s *server) thumbPath(sha string) string {
+	return filepath.Join(s.dataDir, "thumbs", sha+"_384.jpg")
 }

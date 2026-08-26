@@ -94,6 +94,7 @@ export const emptyFilter = Object.freeze({
   aspect: '', // aspect name
   score: 'all', // 'all' | 'liked' | 'disliked' | 'unrated'
   session: '',
+  style: '', // art-style preset id (lab matrices are one style per row)
   uncaptioned: false,
   criterion: '', // '' | '<name>:1' | '<name>:-1'
 });
@@ -108,6 +109,7 @@ export function filterToParams(f) {
   else if (f.score === 'disliked') p.set('score', '-1');
   else if (f.score === 'unrated') p.set('unrated', '1');
   if (f.session) p.set('session', String(f.session));
+  if (f.style) p.set('style', f.style);
   if (f.uncaptioned) p.set('captioned', '0');
   if (f.criterion) p.set('criterion', f.criterion);
   return p;

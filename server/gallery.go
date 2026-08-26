@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"log"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,23 +15,26 @@ import (
 
 // galleryItem is one row of the flat gallery list.
 type galleryItem struct {
-	ID          string          `json:"id"`
-	Sha256      string          `json:"sha256"`
-	Idx         int             `json:"idx"`
-	NodeID      string          `json:"nodeId"`
-	SessionID   string          `json:"sessionId"`
-	Prompt      string          `json:"prompt"`
-	ModelID     *string         `json:"modelId"`
-	LoraName    *string         `json:"loraName"`
-	PoseID      *string         `json:"poseId"`
-	Seed        *int64          `json:"seed"`
-	Score       int             `json:"score"`
-	HasCritique bool            `json:"hasCritique"`
-	Aspects     []string        `json:"aspects"`
-	Caption     map[string]bool `json:"caption"`
-	CreatedAt   *string         `json:"createdAt"`
-	IsImg2img   bool            `json:"isImg2img"`
-	Origin      string          `json:"origin"`
+	ID           string          `json:"id"`
+	Sha256       string          `json:"sha256"`
+	Idx          int             `json:"idx"`
+	NodeID       string          `json:"nodeId"`
+	SessionID    string          `json:"sessionId"`
+	Prompt       string          `json:"prompt"`
+	ModelID      *string         `json:"modelId"`
+	LoraName     *string         `json:"loraName"`
+	LoraStrength *float64        `json:"loraStrength"`
+	StyleID      *string         `json:"styleId"`
+	PoseID       *string         `json:"poseId"`
+	IsRepose     bool            `json:"isRepose"`
+	Seed         *int64          `json:"seed"`
+	Score        int             `json:"score"`
+	HasCritique  bool            `json:"hasCritique"`
+	Aspects      []string        `json:"aspects"`
+	Caption      map[string]bool `json:"caption"`
+	CreatedAt    *string         `json:"createdAt"`
+	IsImg2img    bool            `json:"isImg2img"`
+	Origin       string          `json:"origin"`
 }
 
 // galleryFilter builds the WHERE clause shared by the list endpoint and
@@ -48,6 +54,20 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 	if v := get("session"); v != "" {
 		conds = append(conds, "g.session_id = ?")
 		args = append(args, v)
+	}
+	// A lab matrix is 40 styles across N models; without this the only thing
+	// separating two rows is a phrase buried in the prompt text.
+	if v := get("style"); v != "" {
+		conds = append(conds, "g.style_id = ?")
+		args = append(args, v)
+	}
+	if v := get("lora"); v != "" {
+		if v == "none" {
+			conds = append(conds, "g.lora_name IS NULL")
+		} else {
+			conds = append(conds, "g.lora_name = ?")
+			args = append(args, v)
+		}
 	}
 	if v := get("aspect"); v != "" {
 		conds = append(conds, `EXISTS (SELECT 1 FROM image_aspects ia
@@ -127,7 +147,8 @@ func (s *server) handleImagesList(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.Query(`
 		SELECT g.id, g.sha256, g.idx, g.node_id, g.session_id, g.prompt,
-		       g.model_id, g.lora_name, g.pose_id, g.seed, g.score,
+		       g.model_id, g.lora_name, g.lora_strength, g.style_id,
+		       g.pose_id, g.is_repose, g.seed, g.score,
 		       g.critique != '', g.created_at, g.parent_id IS NOT NULL, g.origin
 		FROM gallery g
 		WHERE `+where+cursorCond+`
@@ -143,7 +164,8 @@ func (s *server) handleImagesList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		it := &galleryItem{Aspects: []string{}, Caption: map[string]bool{}}
 		if err := rows.Scan(&it.ID, &it.Sha256, &it.Idx, &it.NodeID, &it.SessionID,
-			&it.Prompt, &it.ModelID, &it.LoraName, &it.PoseID, &it.Seed,
+			&it.Prompt, &it.ModelID, &it.LoraName, &it.LoraStrength, &it.StyleID,
+			&it.PoseID, &it.IsRepose, &it.Seed,
 			&it.Score, &it.HasCritique, &it.CreatedAt, &it.IsImg2img, &it.Origin); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -226,7 +248,8 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 	var width, height *int64
 	err := s.db.QueryRow(`
 		SELECT g.id, g.sha256, g.idx, g.node_id, g.session_id, g.prompt,
-		       g.model_id, g.lora_name, g.pose_id, g.seed, g.score,
+		       g.model_id, g.lora_name, g.lora_strength, g.style_id,
+		       g.pose_id, g.is_repose, g.seed, g.score,
 		       g.critique != '', g.created_at, g.parent_id IS NOT NULL, g.origin,
 		       b.width, b.height
 		FROM gallery g LEFT JOIN blobs b ON b.sha256 = g.sha256
@@ -251,18 +274,22 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 	node := map[string]any{}
 	{
 		var (
-			prompt, origin                                     string
-			modelID, lora, poseID, negative, prefix            *string
-			samplerName, scheduler, createdAt                  *string
-			seed, nw, nh, steps                                *int64
-			cfg, denoise                                       *float64
+			prompt, origin                    string
+			modelID, lora, styleID, poseID    *string
+			negative, prefix                  *string
+			samplerName, scheduler, createdAt *string
+			seed, nw, nh, steps               *int64
+			cfg, denoise, loraStrength        *float64
+			isRepose                          bool
 		)
 		err := s.db.QueryRow(`
-			SELECT prompt, origin, model_id, lora_name, pose_id, negative_prompt,
+			SELECT prompt, origin, model_id, lora_name, lora_strength, style_id,
+			       pose_id, is_repose, negative_prompt,
 			       positive_prefix, sampler_name, scheduler, created_at,
 			       seed, width, height, steps, cfg, denoise
 			FROM nodes WHERE id = ?`, it.NodeID).Scan(
-			&prompt, &origin, &modelID, &lora, &poseID, &negative,
+			&prompt, &origin, &modelID, &lora, &loraStrength, &styleID,
+			&poseID, &isRepose, &negative,
 			&prefix, &samplerName, &scheduler, &createdAt,
 			&seed, &nw, &nh, &steps, &cfg, &denoise)
 		if err != nil {
@@ -271,7 +298,8 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		node = map[string]any{
 			"prompt": prompt, "origin": origin, "modelId": modelID,
-			"loraName": lora, "poseId": poseID, "negativePrompt": negative,
+			"loraName": lora, "loraStrength": loraStrength, "styleId": styleID,
+			"poseId": poseID, "isRepose": isRepose, "negativePrompt": negative,
 			"positivePrefix": prefix, "samplerName": samplerName,
 			"scheduler": scheduler, "createdAt": createdAt, "seed": seed,
 			"width": nw, "height": nh, "steps": steps, "cfg": cfg,
@@ -638,6 +666,82 @@ func (s *server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// DELETE /api/sessions/{id}
+//
+// The one operation the gallery was missing: an ingest that should not have
+// happened had no way back. Nodes, images, ratings, aspects, criteria and
+// captions go with the session (ON DELETE CASCADE); blobs are shared by
+// content hash, so a PNG is only removed once nothing else points at it.
+//
+// Images already frozen into a dataset are refused rather than cascaded:
+// dataset_items is the record of what a LoRA was trained on, and deleting a
+// session must not quietly rewrite that history.
+func (s *server) handleSessionDelete(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var inDataset int
+	if err := s.db.QueryRow(`
+		SELECT COUNT(*) FROM dataset_items di
+		JOIN images i ON i.id = di.image_id
+		JOIN nodes n ON n.id = i.node_id
+		WHERE n.session_id = ?`, id).Scan(&inDataset); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if inDataset > 0 {
+		writeErr(w, http.StatusConflict, fmt.Sprintf(
+			"%d images of this session are in a dataset — remove them there first",
+			inDataset))
+		return
+	}
+
+	// Hashes this session references; those left unreferenced afterwards are
+	// the ones whose files can go.
+	rows, err := s.db.Query(`
+		SELECT DISTINCT i.sha256 FROM images i
+		JOIN nodes n ON n.id = i.node_id WHERE n.session_id = ?`, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	var shas []string
+	for rows.Next() {
+		var sha string
+		if err := rows.Scan(&sha); err == nil {
+			shas = append(shas, sha)
+		}
+	}
+	rows.Close()
+
+	res, err := s.db.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeErr(w, http.StatusNotFound, "no such session")
+		return
+	}
+
+	freed := 0
+	for _, sha := range shas {
+		var still int
+		if err := s.db.QueryRow(
+			`SELECT COUNT(*) FROM images WHERE sha256 = ?`, sha).Scan(&still); err != nil || still > 0 {
+			continue
+		}
+		if _, err := s.db.Exec(`DELETE FROM blobs WHERE sha256 = ?`, sha); err != nil {
+			continue
+		}
+		_ = os.Remove(s.blobPath(sha))
+		_ = os.Remove(s.thumbPath(sha))
+		freed++
+	}
+	log.Printf("sessions: deleted %s (%d images, %d blobs freed)", id, len(shas), freed)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"deleted": id, "images": len(shas), "blobsFreed": freed,
+	})
 }
 
 // GET /api/stats

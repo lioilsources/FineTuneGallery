@@ -32,7 +32,13 @@
   }
 
   const anyActive = $derived(
-    f.model !== '' || f.aspect !== '' || f.score !== 'all' || f.session !== '' || f.uncaptioned || f.criterion !== ''
+    f.model !== '' ||
+      f.aspect !== '' ||
+      f.score !== 'all' ||
+      f.session !== '' ||
+      f.style !== '' ||
+      f.uncaptioned ||
+      f.criterion !== ''
   );
 
   const summary = $derived.by(() => {
@@ -49,6 +55,7 @@
       const s = $sessions.find((x) => String(x.id) === String(f.session));
       parts.push(`session: ${s ? s.title : f.session}`);
     }
+    if (f.style) parts.push(`style: ${f.style}`);
     if (f.uncaptioned) parts.push('uncaptioned');
     if (f.criterion) parts.push(f.criterion.replace(':1', ' +').replace(':-1', ' −'));
     return parts.join(' · ');
@@ -116,6 +123,17 @@
         <option value={s.id}>{s.title} ({s.imageCount})</option>
       {/each}
     </select>
+
+    <!-- Only rendered once styled images exist: on a gallery fed purely by the
+         phone this dropdown would be an empty control. -->
+    {#if ($meta.styles || []).length}
+      <select class="sel" value={f.style} onchange={(e) => setF({ style: e.target.value })} title="Art style">
+        <option value="">All styles</option>
+        {#each $meta.styles as st (st)}
+          <option value={st}>{st}</option>
+        {/each}
+      </select>
+    {/if}
 
     <select class="sel" value={f.criterion} onchange={(e) => setF({ criterion: e.target.value })} title="Criterion filter">
       <option value="">Any criterion</option>

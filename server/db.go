@@ -12,6 +12,32 @@ import (
 //go:embed schema.sql
 var schemaV1 string
 
+// migV2 adds the three conditioning fields the app and the lab were already
+// sending and this schema silently dropped: the art-style preset, the LoRA
+// strength (lora_name alone cannot tell a 0.4 run from a 1.4 one), and the
+// keep-the-pose flow. The gallery view has to be recreated — a view does not
+// pick up columns added to its tables.
+const migV2 = `
+ALTER TABLE nodes ADD COLUMN style_id TEXT;
+ALTER TABLE nodes ADD COLUMN lora_strength REAL;
+ALTER TABLE nodes ADD COLUMN is_repose INTEGER NOT NULL DEFAULT 0;
+
+DROP VIEW gallery;
+CREATE VIEW gallery AS
+SELECT i.id, i.sha256, i.idx, i.node_id, n.session_id, n.prompt,
+       n.positive_prefix, n.model_id, n.lora_name, n.lora_strength,
+       n.style_id, n.pose_id, n.is_repose, n.seed,
+       n.created_at, n.parent_id, n.source_image_id, n.origin,
+       COALESCE(r.score, 0)     AS score,
+       COALESCE(r.critique, '') AS critique
+FROM images i
+JOIN nodes n ON n.id = i.node_id
+LEFT JOIN ratings r ON r.image_id = i.id
+WHERE i.blob_present = 1;
+
+CREATE INDEX nodes_style ON nodes(style_id);
+`
+
 // openDB opens (creating if needed) the SQLite database and applies pending
 // migrations. Single-user service: one *sql.DB with WAL is all we need.
 func openDB(path string) (*sql.DB, error) {
@@ -40,7 +66,7 @@ func migrate(db *sql.DB) error {
 	}
 	migs := []mig{
 		{1, schemaV1},
-		// Future: {2, "ALTER TABLE …"},
+		{2, migV2},
 	}
 	for _, m := range migs {
 		if version >= m.v {
