@@ -316,3 +316,63 @@ func TestMetaCoversEveryModelTheAppCanGenerateWith(t *testing.T) {
 		}
 	}
 }
+
+// The detail endpoint is what the web opens on a click; a SELECT that grew new
+// columns without matching Scan destinations turns every click into
+// "Failed to load image". List and detail must stay in step column for column.
+func TestImageDetailCarriesStyleAndLoraStrength(t *testing.T) {
+	s := newTestServer(t)
+	ingestJSON(t, s, labManifest)
+	markBlobsPresent(t, s, shaA, shaB)
+
+	req := httptest.NewRequest("GET", "/api/images/i1", nil)
+	req.SetPathValue("id", "i1")
+	rec := httptest.NewRecorder()
+	s.handleImageDetail(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("%d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Image struct {
+			ID           string   `json:"id"`
+			Sha256       string   `json:"sha256"`
+			StyleID      *string  `json:"styleId"`
+			LoraStrength *float64 `json:"loraStrength"`
+			IsRepose     bool     `json:"isRepose"`
+		} `json:"image"`
+		Node struct {
+			StyleID      *string  `json:"styleId"`
+			LoraStrength *float64 `json:"loraStrength"`
+		} `json:"node"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if out.Image.ID != "i1" || out.Image.Sha256 != shaA {
+		t.Fatalf("řádek se posunul o sloupec: %+v", out.Image)
+	}
+	if out.Image.StyleID == nil || *out.Image.StyleID != "ukiyoe" {
+		t.Errorf("styl = %v", out.Image.StyleID)
+	}
+	if out.Image.LoraStrength == nil || *out.Image.LoraStrength != 0.65 {
+		t.Errorf("síla LoRA = %v", out.Image.LoraStrength)
+	}
+	if out.Node.StyleID == nil || *out.Node.StyleID != "ukiyoe" {
+		t.Errorf("node.styleId = %v", out.Node.StyleID)
+	}
+
+	// The reposed cell: a bool that must not be read out of the seed column.
+	req = httptest.NewRequest("GET", "/api/images/i2", nil)
+	req.SetPathValue("id", "i2")
+	rec = httptest.NewRecorder()
+	s.handleImageDetail(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("i2: %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !out.Image.IsRepose {
+		t.Error("isRepose se v detailu ztratilo")
+	}
+}

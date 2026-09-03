@@ -255,7 +255,8 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 		FROM gallery g LEFT JOIN blobs b ON b.sha256 = g.sha256
 		WHERE g.id = ?`, id).Scan(
 		&it.ID, &it.Sha256, &it.Idx, &it.NodeID, &it.SessionID, &it.Prompt,
-		&it.ModelID, &it.LoraName, &it.PoseID, &it.Seed, &it.Score,
+		&it.ModelID, &it.LoraName, &it.LoraStrength, &it.StyleID,
+		&it.PoseID, &it.IsRepose, &it.Seed, &it.Score,
 		&it.HasCritique, &it.CreatedAt, &it.IsImg2img, &it.Origin, &width, &height)
 	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "image not found")
