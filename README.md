@@ -69,6 +69,40 @@ Balíček je self-contained (img/ + captiony + oba tomly + README s přesným
 příkazem). Výstup `<aspect>_<ecosystem>_v1.safetensors` — **jméno nesmí
 obsahovat „flux"** (heuristika LoRA rodin v appce); run.sh to hlídá.
 
+## Eval harness
+
+Relační kritéria (`pose_adherence`, `source_identity`, `source_style`) hodnotí
+výstup proti tomu, co ho podmiňovalo — jsou to jediné ratingy tady, které umí
+odpovědět na „který checkpoint drží pózu". Záložka **Eval** je ta odpověď:
+rozřež ohodnocený korpus podle libovolné dimenze (model / art styl / LoRA /
+póza / session) a porovnej.
+
+```
+Eval → group by: Model → pose adherence
+  Pony V6          90 %  ≥75 %  n=31    ← vede
+  Juggernaut XL    86 %  ≥66 %  n=21
+  Animagine XL 4  100 %  ≥29 %  n=3     ← neřadí se, pod prahem
+  NoobAI XL        n/a                  ← žádný obrázek s pózou
+```
+
+Tři věci, na kterých to stojí:
+
+- **Řadí se podle dolní meze 95% Wilsonova intervalu, ne podle poměru.**
+  3/3 vypadá na poměr líp než 36/40 a na žebříčku před ním stát nesmí. Sloupec
+  `min ratings` je práh, pod kterým se skupina vůbec nekoruje.
+- **Pokrytí je per kritérium.** Póza se nedá hodnotit na obrázku bez pózy, a
+  `source_*` na obrázku, co nevznikl z jiného. Buňka proto rozlišuje tři stavy:
+  `n/a` (nelze hodnotit) ≠ `rate N` (lze, nikdo nehodnotil) ≠ `0 %`.
+- **Klik na buňku vede na to, co ještě chybí.** Galerie se otevře přesně na
+  neohodnocených obrázcích té skupiny (`criterion=<name>:none`) — harness řekne,
+  kde je důkazů málo, a odkaz tě pošle je doplnit.
+
+LoRA se seskupuje podle jména **a síly** (`face_v1 @ 0.40` a `face_v1 @ 1.20`
+jsou dva různé experimenty). `CSV` exportuje celou matici.
+
+Typický běh: vygeneruj stejné prompty přes N checkpointů → oštítkuj kritéria →
+Eval → group by Model. Žebříček místo dojmů.
+
 ## Ekosystémy
 
 LoRA se přenáší dobře jen uvnitř ekosystému checkpointu, na kterém se
@@ -83,12 +117,15 @@ musí to být vědomá volba, UI na to upozorňuje.
 POST /api/ingest/manifest                  → {"needed":[sha…]}
 PUT  /api/ingest/images/{sha256}           raw PNG
 POST /api/ingest/sessions/{id}/finalize    → {"images":N,"newBlobs":M}
-GET  /api/images?model=&aspect=&score=&criterion=pose_adherence:1&cursor=
+GET  /api/images?model=&aspect=&score=&style=&lora=&lora_strength=&pose=
+                &criterion=pose_adherence:1|-1|none&cursor=
 GET  /api/images/{id}                      detail + parentChain
 PUT  /api/images/{id}/rating|aspects|criteria|caption
 POST /api/images/{id}/autocaption
 GET  /api/datasets · POST …/items/from-filter · POST …/build · GET …/download
 GET  /api/stats · /api/meta · /healthz
+GET  /api/eval?group=model|style|lora|pose|session&min=10[&format=csv]
+                                           + všechny filtry /api/images
 ```
 
 ## Vývoj

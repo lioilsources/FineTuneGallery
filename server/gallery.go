@@ -69,6 +69,20 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 			args = append(args, v)
 		}
 	}
+	// Strength is matched on the same two-decimal rendering the eval harness
+	// groups by, so a row there maps back to exactly its own images.
+	if v := get("lora_strength"); v != "" {
+		conds = append(conds, "printf('%.2f', g.lora_strength) = ?")
+		args = append(args, v)
+	}
+	if v := get("pose"); v != "" {
+		if v == "none" {
+			conds = append(conds, "COALESCE(g.pose_id, '') = ''")
+		} else {
+			conds = append(conds, "g.pose_id = ?")
+			args = append(args, v)
+		}
+	}
 	if v := get("aspect"); v != "" {
 		conds = append(conds, `EXISTS (SELECT 1 FROM image_aspects ia
 			JOIN aspects a ON a.id = ia.aspect_id
@@ -98,12 +112,26 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 	}
 	if v := get("criterion"); v != "" {
 		name, val, ok := strings.Cut(v, ":")
-		if !ok || !slices.Contains(kCriteria, name) || (val != "1" && val != "-1") {
-			return "", nil, "criterion must be <name>:<1|-1>"
+		if !ok || !slices.Contains(kCriteria, name) || (val != "1" && val != "-1" && val != "none") {
+			return "", nil, "criterion must be <name>:<1|-1|none>"
 		}
-		conds = append(conds, `EXISTS (SELECT 1 FROM image_criteria ic
-			WHERE ic.image_id = g.id AND ic.criterion = ? AND ic.score = ?)`)
-		args = append(args, name, val)
+		if val == "none" {
+			// The eval harness's rating queue: images this criterion can be
+			// judged on but nobody has judged yet. Without the eligibility
+			// clause this would return the whole corpus, most of which the
+			// criterion cannot apply to.
+			elig := "1=1"
+			if c, ok := criterionEligible[name]; ok {
+				elig = c
+			}
+			conds = append(conds, elig+` AND NOT EXISTS (SELECT 1 FROM image_criteria ic
+				WHERE ic.image_id = g.id AND ic.criterion = ?)`)
+			args = append(args, name)
+		} else {
+			conds = append(conds, `EXISTS (SELECT 1 FROM image_criteria ic
+				WHERE ic.image_id = g.id AND ic.criterion = ? AND ic.score = ?)`)
+			args = append(args, name, val)
+		}
 	}
 	if v := get("from"); v != "" {
 		conds = append(conds, "g.created_at >= ?")
@@ -791,33 +819,10 @@ func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
 	rows.Close()
 	stats["byAspect"] = byAspect
 
-	// The eval-harness view: which model holds pose / preserves identity.
-	byModelCriterion := []map[string]any{}
-	rows, err = s.db.Query(`
-		SELECT COALESCE(g.model_id, '?'), ic.criterion,
-		       SUM(CASE WHEN ic.score = 1 THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN ic.score = -1 THEN 1 ELSE 0 END)
-		FROM image_criteria ic JOIN gallery g ON g.id = ic.image_id
-		GROUP BY g.model_id, ic.criterion ORDER BY g.model_id, ic.criterion`)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	for rows.Next() {
-		var model, criterion string
-		var up, down int
-		if err := rows.Scan(&model, &criterion, &up, &down); err != nil {
-			rows.Close()
-			writeErr(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		byModelCriterion = append(byModelCriterion, map[string]any{
-			"modelId": model, "criterion": criterion, "up": up, "down": down,
-		})
-	}
-	rows.Close()
-	stats["byModelCriterion"] = byModelCriterion
-
+	// Model × criterion used to be tallied here. It now lives in /api/eval,
+	// which reports the same numbers with sample size and a confidence
+	// interval — computing a second, weaker copy here would only invite the
+	// two to disagree.
 	writeJSON(w, http.StatusOK, stats)
 }
 

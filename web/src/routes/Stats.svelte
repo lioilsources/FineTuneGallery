@@ -1,8 +1,5 @@
 <script>
-  import { meta, ensureMeta } from '../lib/stores.js';
   import { api } from '../lib/api.js';
-
-  ensureMeta();
 
   let stats = $state(null);
   let error = $state(false);
@@ -14,29 +11,6 @@
       error = true;
     }
   })();
-
-  const modelRows = $derived.by(() => {
-    if (!stats) return [];
-    const ids = [];
-    for (const e of stats.byModelCriterion || []) {
-      if (!ids.includes(e.modelId)) ids.push(e.modelId);
-    }
-    return ids;
-  });
-
-  const critCols = $derived.by(() => {
-    const cols = [...($meta.criteria || [])];
-    for (const e of (stats && stats.byModelCriterion) || []) {
-      if (!cols.includes(e.criterion)) cols.push(e.criterion);
-    }
-    return cols;
-  });
-
-  const modelLabels = $derived(new Map(($meta.models || []).map((m) => [m.id, m.label])));
-
-  function cell(modelId, criterion) {
-    return (stats.byModelCriterion || []).find((e) => e.modelId === modelId && e.criterion === criterion) || null;
-  }
 </script>
 
 <main class="page">
@@ -88,39 +62,10 @@
       <p class="dim small">no aspect data yet</p>
     {/if}
 
-    <h3 style="margin-top: 24px">By model × criterion <span class="dim" style="text-transform:none">(up / down)</span></h3>
-    {#if modelRows.length}
-      <div class="tbl-scroll">
-        <table class="tbl">
-          <thead>
-            <tr>
-              <th>model</th>
-              {#each critCols as c (c)}
-                <th>{c.replaceAll('_', ' ')}</th>
-              {/each}
-            </tr>
-          </thead>
-          <tbody>
-            {#each modelRows as mid (mid)}
-              <tr>
-                <td>{modelLabels.get(mid) ?? mid}</td>
-                {#each critCols as c (c)}
-                  {@const e = cell(mid, c)}
-                  <td>
-                    {#if e}
-                      <span class="up">{e.up}</span><span class="dim">/</span><span class="down">{e.down}</span>
-                    {:else}
-                      <span class="dim">—</span>
-                    {/if}
-                  </td>
-                {/each}
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    {:else}
-      <p class="dim small">no criterion data yet</p>
-    {/if}
+    <h3 style="margin-top: 24px">Model × criterion</h3>
+    <p class="dim small">
+      Moved to the <a href="#/eval">eval harness</a>, which reports the same tallies with sample size and a confidence
+      interval attached — the counts alone rank a lucky 3/3 above a solid 36/40.
+    </p>
   {/if}
 </main>

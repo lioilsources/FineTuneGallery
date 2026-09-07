@@ -37,6 +37,8 @@
       f.score !== 'all' ||
       f.session !== '' ||
       f.style !== '' ||
+      f.lora !== '' ||
+      f.pose !== '' ||
       f.uncaptioned ||
       f.criterion !== ''
   );
@@ -56,8 +58,11 @@
       parts.push(`session: ${s ? s.title : f.session}`);
     }
     if (f.style) parts.push(`style: ${f.style}`);
+    if (f.lora) parts.push(`lora: ${f.lora === 'none' ? 'none' : f.lora}${f.loraStrength ? ` @ ${f.loraStrength}` : ''}`);
+    if (f.pose) parts.push(`pose: ${f.pose}`);
     if (f.uncaptioned) parts.push('uncaptioned');
-    if (f.criterion) parts.push(f.criterion.replace(':1', ' +').replace(':-1', ' −'));
+    if (f.criterion)
+      parts.push(f.criterion.replace(':1', ' +').replace(':-1', ' −').replace(':none', ' — unrated'));
     return parts.join(' · ');
   });
 
@@ -140,6 +145,7 @@
       {#each $meta.criteria as c (c)}
         <option value="{c}:1">{c} +</option>
         <option value="{c}:-1">{c} −</option>
+        <option value="{c}:none">{c} — unrated</option>
       {/each}
     </select>
 
@@ -189,6 +195,7 @@
     {/if}
     <span class="spacer"></span>
     <a class="chip mini ghost" href="#/datasets">datasets</a>
+    <a class="chip mini ghost" href="#/eval">eval</a>
     <a class="chip mini ghost" href="#/stats">stats</a>
   </div>
 </div>
