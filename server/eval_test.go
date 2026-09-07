@@ -1,12 +1,14 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -344,5 +346,135 @@ func TestCriterionNoneFilterIsTheRatingQueue(t *testing.T) {
 
 	if _, _, bad := galleryFilter(map[string][]string{"criterion": {"pose_adherence:maybe"}}); bad == "" {
 		t.Fatal("criterion=pose_adherence:maybe should be rejected")
+	}
+}
+
+// The medium axis exists to be A/B'd: the same style rendered with an explicit
+// render medium and without one. That comparison only works if the control arm
+// — nodes with no medium — stays addressable in both the harness and the
+// gallery, so both halves are pinned here.
+func TestMediumAxisComparesAgainstItsControlArm(t *testing.T) {
+	s := newTestServer(t)
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := s.db.Exec(q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO sessions (id, title, model_id) VALUES ('lab', 'medium A/B', 'juggernaut-xl')`)
+
+	// Same style (assyrian), same model: 12 with a declared medium, 8 without.
+	seq := 0
+	add := func(n int, medium any, up, down int) {
+		for i := 0; i < n; i++ {
+			seq++
+			id, node, sha := fmt.Sprintf("mi%d", seq), fmt.Sprintf("mn%d", seq), fakeSha(seq)
+			exec(`INSERT INTO nodes (id, session_id, prompt, model_id, style_id, medium_id)
+			      VALUES (?, 'lab', 'a ballerina', 'juggernaut-xl', 'assyrian', ?)`, node, medium)
+			exec(`INSERT INTO blobs (sha256, size) VALUES (?, 1)`, sha)
+			exec(`INSERT INTO images (id, node_id, idx, sha256, size, blob_present)
+			      VALUES (?, ?, 0, ?, 1, 1)`, id, node, sha)
+			score := -1
+			if i < up {
+				score = 1
+			}
+			if i < up+down {
+				exec(`INSERT INTO ratings (image_id, score) VALUES (?, ?)`, id, score)
+			}
+		}
+	}
+	add(12, "medium_illustration", 10, 2)
+	add(8, nil, 2, 6)
+
+	res := evalJSON(t, s, "group=medium&min=5")
+	withMedium := rowByLabel(t, res, "medium_illustration")["n"].(float64)
+	control := rowByLabel(t, res, "(no medium)")["n"].(float64)
+	if withMedium != 12 || control != 8 {
+		t.Fatalf("rows split %v/%v, want 12/8", withMedium, control)
+	}
+	leader := res["leaders"].(map[string]any)["like"].(map[string]any)
+	if leader["label"] != "medium_illustration" {
+		t.Fatalf("like leader = %v, want medium_illustration", leader["label"])
+	}
+
+	// The gallery must be able to serve the control arm on its own; without
+	// medium=none the images the experiment compares against are unreachable.
+	for _, tc := range []struct {
+		filter string
+		want   int
+	}{
+		{"none", 8},
+		{"medium_illustration", 12},
+	} {
+		where, args, bad := galleryFilter(map[string][]string{"medium": {tc.filter}})
+		if bad != "" {
+			t.Fatalf("medium=%s rejected: %s", tc.filter, bad)
+		}
+		var n int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM gallery g WHERE `+where, args...).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != tc.want {
+			t.Fatalf("medium=%s matched %d, want %d", tc.filter, n, tc.want)
+		}
+	}
+}
+
+// Migrating a v2 database (styles and LoRA strengths already rated) to v3 must
+// keep every row and leave the new column empty — those images are the control
+// arm of the very experiment the column exists for.
+func TestMigrationV3KeepsV2Rows(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "v2.sqlite")
+
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{schemaV1, migV2, `PRAGMA user_version = 2`} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sha := fakeSha(7)
+	for _, q := range []string{
+		`INSERT INTO sessions (id, title, model_id) VALUES ('s1', 'old', 'pony')`,
+		`INSERT INTO nodes (id, session_id, prompt, model_id, style_id, lora_strength)
+		 VALUES ('n1', 's1', 'a cat', 'pony', 'ukiyoe', 0.4)`,
+		`INSERT INTO blobs (sha256, size) VALUES ('` + sha + `', 1)`,
+		`INSERT INTO images (id, node_id, idx, sha256, size, blob_present)
+		 VALUES ('i1','n1',0,'` + sha + `',1,1)`,
+		`INSERT INTO ratings (image_id, score) VALUES ('i1', 1)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db.Close()
+
+	db, err = openDB(path)
+	if err != nil {
+		t.Fatalf("migrace v3 spadla: %v", err)
+	}
+	defer db.Close()
+
+	var version int
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil ||
+		version != schemaVersion() {
+		t.Fatalf("user_version = %d, want %d (%v)", version, schemaVersion(), err)
+	}
+	var styleID string
+	var mediumID any
+	var score int
+	if err := db.QueryRow(
+		`SELECT style_id, medium_id, score FROM gallery WHERE id = 'i1'`).
+		Scan(&styleID, &mediumID, &score); err != nil {
+		t.Fatalf("gallery view after v3: %v", err)
+	}
+	if styleID != "ukiyoe" || score != 1 {
+		t.Fatalf("row changed: style=%q score=%d", styleID, score)
+	}
+	if mediumID != nil {
+		t.Fatalf("medium_id = %v, want NULL on a pre-v3 row", mediumID)
 	}
 }

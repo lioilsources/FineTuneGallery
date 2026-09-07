@@ -100,8 +100,84 @@ Tři věci, na kterých to stojí:
 LoRA se seskupuje podle jména **a síly** (`face_v1 @ 0.40` a `face_v1 @ 1.20`
 jsou dva různé experimenty). `CSV` exportuje celou matici.
 
+### Osa `medium` — první A/B, na který je harness postavený
+
+Stylové bloky v appce samy pojmenovávají render medium („woodblock print",
+„stone relief"), ale prompt žádné nedeklaruje. Stylová matice appky
+(`Ol1nLLM/docs/style-matrix.md`) zaznamenala následek: tradice, jejichž celé
+tvrzení *je* medium (asyrský, mezopotámský, hebrejský reliéf), spadnou na
+většině modelů na béžovou stěnu. Hypotéza převzatá z Tsumiki
+(`MangaPrompts/assets/config/blocks/medium.yaml`): medium musí být vlastní,
+dopředu umístěná osa, ne vlečná věta.
+
+Sloupec `nodes.medium_id` (migrace v3) je způsob, jak to rozsoudit:
+
+```
+lab run --subject "a ballerina" --models juggernaut-xl         --styles assyrian,mesopotamian,hebrew --mediums __none,medium_illustration
+lab export build/lab/<běh> --send
+
+Eval → group by Medium, scope: style=assyrian
+  medium_illustration   71 %  ≥50 %  n=21
+  (no medium)           27 %  ≥11 %  n=15     ← kontrolní rameno
+```
+
+Dvě věci, které z toho dělají experiment a ne dojem:
+
+- **Kontrolní rameno musí být dosažitelné.** `medium=none` je proto plnohodnotná
+  hodnota filtru — bez ní se na obrázky, proti kterým se porovnává, nedá dostat.
+- **Dolní meze musí přestat sousedit.** Při ~36 hodnoceních se interval 50–86 %
+  a 11–52 % sotva rozpojí. To je minimum, ne cíl; když se meze překrývají,
+  odpověď zní „ještě nevím", ne „vyrovnané".
+
 Typický běh: vygeneruj stejné prompty přes N checkpointů → oštítkuj kritéria →
 Eval → group by Model. Žebříček místo dojmů.
+
+## Překlad promptu do jazyka modelu
+
+Pony, Illustrious, NoobAI a Animagine jsou trénované na Danbooru tazích a
+prózu čtou špatně — UGC pipeline v AiStacku to zaznamenala („no character"
+→ busta, „empty item" → celý nindža), appka jim přesto posílá volný text.
+Galerie proto překládá **na jednom místě**, aby appka, lab i benchmark
+dostaly pro stejný vstup stejné tagy:
+
+```
+POST /api/translate   {"text": "a ballerina on pointe, seen from the side"}
+→ {"text": "1girl, solo, ballerina, en pointe, from side, …",
+   "tags": [...], "dropped": ["glowing aura"], "translator": "prompt-tags@v1"}
+```
+
+Tři vlastnosti, bez kterých by to rozbilo feedback loop:
+
+- **Deterministické a přiřaditelné.** Odpověď se ukládá do `translations`
+  podle `sha256(text, jazyk, verze)`; `translator` (alias@verze promptu) jde
+  na node a Eval podle něj seskupuje — „pomáhá překlad?" a „je v2 lepší než
+  v1?" je táž otázka nad týmž sloupcem.
+- **Omezené slovníkem.** LLM si tagy vymýšlí; `GET {tagger}/tags` vrací
+  `selected_tags.csv` WD14 a co v něm není, se zahodí — a **vrátí v `dropped`**,
+  ne tiše.
+- **Bez fallbacku.** Gateway dole = 502, ne jiný model pod stejnou verzí.
+  Appka pak pošle prózu a `translator` nechá prázdný; kontrolní rameno je
+  dosažitelné filtrem `translator=none`.
+
+Konfigurace: `LLM_GATEWAY_URL` (AiStack gateway na LAN, prázdné = vypnuto),
+`TRANSLATE_MODEL` (LiteLLM alias, default `prompt-tags`). Stav v `/api/meta`.
+
+### Výběr modelu: `tagbench`
+
+Ground truth už máš: `nodes.prompt` (co jsi napsal) a `captions.tags_json`
+(co WD14 viděl na výsledku). Benchmark nechá každý alias přeložit stejné
+prompty a skóruje proti taggeru — bez ručního labelování, bez stahování.
+
+```
+finetune-gallery tagbench -models prompt-tags,translate -n 100
+model        n    err  recall  precision  vocab hit  tags  p50    p90
+prompt-tags  100  0    71.4%   58.2%      93.1%      14.2  0.84s  1.31s
+translate    100  0    68.9%   61.0%      95.4%      12.7  2.10s  3.05s
+```
+
+`recall` je hlavní číslo (našel, co v obrázku bylo); `precision` a `vocab hit`
+říkají, kolik si vymyslel; `p50/p90` jestli může stát před každou generací.
+`-no-cache` měří živý model místo včerejší odpovědi, `-v` vypíše páry.
 
 ## Ekosystémy
 

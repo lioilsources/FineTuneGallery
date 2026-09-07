@@ -14,9 +14,10 @@ import (
 )
 
 type server struct {
-	db        *sql.DB
-	dataDir   string
-	captioner *Captioner
+	db         *sql.DB
+	dataDir    string
+	captioner  *Captioner
+	translator *Translator
 }
 
 func env(key, fallback string) string {
@@ -27,9 +28,20 @@ func env(key, fallback string) string {
 }
 
 func main() {
+	// Subcommands share the binary so they share the DB layer and the
+	// translator — a benchmark that used a copy of either would measure the
+	// copy. `finetune-gallery tagbench -h`.
+	if len(os.Args) > 1 && os.Args[1] == "tagbench" {
+		os.Exit(runTagbench(os.Args[2:]))
+	}
+
 	addr := env("FINETUNE_ADDR", ":8092")
 	dataDir := env("FINETUNE_DATA", "/data")
 	taggerURL := env("TAGGER_URL", "http://wd14:8000")
+	// The LLM gateway on the LAN (AiStack gateway → LiteLLM). Empty disables
+	// prompt translation; the app then sends prose and records translated=false.
+	gatewayURL := env("LLM_GATEWAY_URL", "")
+	translateModel := env("TRANSLATE_MODEL", "prompt-tags")
 
 	for _, sub := range []string{"images", "thumbs", "datasets", "db", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
@@ -46,6 +58,10 @@ func main() {
 	s := &server{db: db, dataDir: dataDir}
 	s.captioner = NewCaptioner(db, taggerURL, dataDir, s.blobPath)
 	go s.captioner.Run()
+	s.translator = NewTranslator(db, gatewayURL, translateModel, taggerURL)
+	if s.translator.Enabled() {
+		go s.translator.Run()
+	}
 
 	mux := http.NewServeMux()
 
@@ -67,6 +83,7 @@ func main() {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleSessionDelete)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/eval", s.handleEval)
+	mux.HandleFunc("POST /api/translate", s.handleTranslate)
 	mux.HandleFunc("GET /api/meta", s.handleMeta)
 
 	// Datasets.
@@ -93,7 +110,8 @@ func main() {
 		Handler:           logRequests(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	log.Printf("finetune-gallery listening on %s (data: %s, tagger: %s)", addr, dataDir, taggerURL)
+	log.Printf("finetune-gallery listening on %s (data: %s, tagger: %s, llm gateway: %q)",
+		addr, dataDir, taggerURL, gatewayURL)
 	log.Fatal(srv.ListenAndServe())
 }
 

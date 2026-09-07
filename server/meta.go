@@ -46,9 +46,10 @@ func modelByID(id string) *ModelMeta {
 
 func (s *server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
-		"models":   kModels,
-		"criteria": kCriteria,
-		"styles":   s.ingestedStyles(),
+		"models":     kModels,
+		"criteria":   kCriteria,
+		"styles":     s.ingestedStyles(),
+		"translator": s.translatorMeta(),
 	})
 }
 

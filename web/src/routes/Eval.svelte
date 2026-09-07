@@ -16,14 +16,6 @@
   ensureAspects();
   ensureSessions();
 
-  const GROUPS = [
-    ['model', 'Model'],
-    ['style', 'Art style'],
-    ['lora', 'LoRA'],
-    ['pose', 'Pose'],
-    ['session', 'Session'],
-  ];
-
   let group = $state('model');
   let minRated = $state(10);
   let scope = $state({ model: '', session: '', style: '', aspect: '' });
@@ -33,6 +25,23 @@
   let loading = $state(false);
   let failed = $state(false);
   let generation = 0;
+
+  // Dimensions come from the API (data.groups) rather than a list here — a
+  // copy would go stale the moment the server grows an axis, which is exactly
+  // what happened when `medium` was added. Labels are cosmetic; an unlabelled
+  // key still renders, it just shows as-is.
+  const GROUP_LABELS = {
+    model: 'Model',
+    style: 'Art style',
+    medium: 'Medium',
+    translator: 'Translator',
+    lora: 'LoRA',
+    pose: 'Pose',
+    session: 'Session',
+  };
+  const groupOptions = $derived(
+    (data?.groups ?? ['model']).map((g) => [g, GROUP_LABELS[g] ?? g])
+  );
 
   function params() {
     const p = new URLSearchParams();
@@ -115,6 +124,8 @@
     else if (group === 'style') f.style = row.key;
     else if (group === 'session') f.session = row.key;
     else if (group === 'pose') f.pose = row.key || 'none';
+    else if (group === 'medium') f.medium = row.key || 'none';
+    else if (group === 'translator') f.translator = row.key || 'none';
     else if (group === 'lora') {
       const [name, strength] = row.key.split(' @ ');
       f.lora = row.key === '' ? 'none' : name;
@@ -151,7 +162,7 @@
     <div class="filter-row">
       <span class="lbl">group by</span>
       <div class="seg" role="group" aria-label="Group by">
-        {#each GROUPS as [val, label] (val)}
+        {#each groupOptions as [val, label] (val)}
           <button
             class="seg-btn"
             class:active={group === val}

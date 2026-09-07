@@ -33,10 +33,14 @@ type evalGroupDef struct {
 }
 
 var evalGroupDefs = map[string]evalGroupDef{
-	"model":   {"COALESCE(g.model_id, '')", "(unknown model)"},
-	"style":   {"COALESCE(g.style_id, '')", "(no style)"},
-	"pose":    {"COALESCE(g.pose_id, '')", "(no pose)"},
-	"session": {"g.session_id", "(no session)"},
+	"model":  {"COALESCE(g.model_id, '')", "(unknown model)"},
+	"style":  {"COALESCE(g.style_id, '')", "(no style)"},
+	"medium": {"COALESCE(g.medium_id, '')", "(no medium)"},
+	// The version string, not a boolean: "does translation help" and "did v2
+	// beat v1" are the same question asked of the same column.
+	"translator": {"COALESCE(g.translator, '')", "(raw prose)"},
+	"pose":       {"COALESCE(g.pose_id, '')", "(no pose)"},
+	"session":    {"g.session_id", "(no session)"},
 	// lora_strength is part of the identity of a LoRA run — schema v2 added
 	// the column precisely because lora_name alone cannot tell a 0.4 run from
 	// a 1.4 one, and grouping by name alone would throw that away again.
@@ -45,7 +49,7 @@ var evalGroupDefs = map[string]evalGroupDef{
 		                         ELSE ' @ ' || printf('%.2f', g.lora_strength) END END`, "(no LoRA)"},
 }
 
-var evalGroupOrder = []string{"model", "style", "lora", "pose", "session"}
+var evalGroupOrder = []string{"model", "style", "medium", "translator", "lora", "pose", "session"}
 
 // criterionEligible restricts each criterion to the images it can be judged
 // on. Without this a coverage figure is a fraction of the whole corpus and
