@@ -100,6 +100,35 @@ Tři věci, na kterých to stojí:
 LoRA se seskupuje podle jména **a síly** (`face_v1 @ 0.40` a `face_v1 @ 1.20`
 jsou dva různé experimenty). `CSV` exportuje celou matici.
 
+### Osa `medium` — první A/B, na který je harness postavený
+
+Stylové bloky v appce samy pojmenovávají render medium („woodblock print",
+„stone relief"), ale prompt žádné nedeklaruje. Stylová matice appky
+(`Ol1nLLM/docs/style-matrix.md`) zaznamenala následek: tradice, jejichž celé
+tvrzení *je* medium (asyrský, mezopotámský, hebrejský reliéf), spadnou na
+většině modelů na béžovou stěnu. Hypotéza převzatá z Tsumiki
+(`MangaPrompts/assets/config/blocks/medium.yaml`): medium musí být vlastní,
+dopředu umístěná osa, ne vlečná věta.
+
+Sloupec `nodes.medium_id` (migrace v3) je způsob, jak to rozsoudit:
+
+```
+lab run --subject "a ballerina" --models juggernaut-xl         --styles assyrian,mesopotamian,hebrew --mediums __none,medium_illustration
+lab export build/lab/<běh> --send
+
+Eval → group by Medium, scope: style=assyrian
+  medium_illustration   71 %  ≥50 %  n=21
+  (no medium)           27 %  ≥11 %  n=15     ← kontrolní rameno
+```
+
+Dvě věci, které z toho dělají experiment a ne dojem:
+
+- **Kontrolní rameno musí být dosažitelné.** `medium=none` je proto plnohodnotná
+  hodnota filtru — bez ní se na obrázky, proti kterým se porovnává, nedá dostat.
+- **Dolní meze musí přestat sousedit.** Při ~36 hodnoceních se interval 50–86 %
+  a 11–52 % sotva rozpojí. To je minimum, ne cíl; když se meze překrývají,
+  odpověď zní „ještě nevím", ne „vyrovnané".
+
 Typický běh: vygeneruj stejné prompty přes N checkpointů → oštítkuj kritéria →
 Eval → group by Model. Žebříček místo dojmů.
 

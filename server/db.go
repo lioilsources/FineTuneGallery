@@ -38,6 +38,36 @@ WHERE i.blob_present = 1;
 CREATE INDEX nodes_style ON nodes(style_id);
 `
 
+// migV3 adds the render-medium axis. The app's art-style blocks name a medium
+// of their own ("woodblock print", "stone relief") while the prompt never
+// declares one, so the two compete and the lab's style matrix recorded the
+// result: the traditions whose whole claim is a medium ("assyrian stone
+// relief in earth tones") collapse to a beige wall on most models. Making the
+// medium an explicit, front-loaded axis is the hypothesis; this column is how
+// the eval harness gets to judge it, by grouping the same style with and
+// without one.
+//
+// The gallery view has to be recreated — a view does not pick up columns added
+// to its tables.
+const migV3 = `
+ALTER TABLE nodes ADD COLUMN medium_id TEXT;
+
+DROP VIEW gallery;
+CREATE VIEW gallery AS
+SELECT i.id, i.sha256, i.idx, i.node_id, n.session_id, n.prompt,
+       n.positive_prefix, n.model_id, n.lora_name, n.lora_strength,
+       n.style_id, n.medium_id, n.pose_id, n.is_repose, n.seed,
+       n.created_at, n.parent_id, n.source_image_id, n.origin,
+       COALESCE(r.score, 0)     AS score,
+       COALESCE(r.critique, '') AS critique
+FROM images i
+JOIN nodes n ON n.id = i.node_id
+LEFT JOIN ratings r ON r.image_id = i.id
+WHERE i.blob_present = 1;
+
+CREATE INDEX nodes_medium ON nodes(medium_id);
+`
+
 // openDB opens (creating if needed) the SQLite database and applies pending
 // migrations. Single-user service: one *sql.DB with WAL is all we need.
 func openDB(path string) (*sql.DB, error) {
@@ -55,19 +85,26 @@ func openDB(path string) (*sql.DB, error) {
 	return db, nil
 }
 
+type mig struct {
+	v   int
+	sql string
+}
+
+var migrations = []mig{
+	{1, schemaV1},
+	{2, migV2},
+	{3, migV3},
+}
+
+// schemaVersion is the version openDB brings a database up to.
+func schemaVersion() int { return migrations[len(migrations)-1].v }
+
 func migrate(db *sql.DB) error {
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read user_version: %w", err)
 	}
-	type mig struct {
-		v   int
-		sql string
-	}
-	migs := []mig{
-		{1, schemaV1},
-		{2, migV2},
-	}
+	migs := migrations
 	for _, m := range migs {
 		if version >= m.v {
 			continue

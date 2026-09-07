@@ -68,8 +68,9 @@ func TestMigrationV2KeepsExistingRows(t *testing.T) {
 	defer db.Close()
 
 	var version int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 2 {
-		t.Fatalf("user_version = %d (%v)", version, err)
+	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil ||
+		version != schemaVersion() {
+		t.Fatalf("user_version = %d, want %d (%v)", version, schemaVersion(), err)
 	}
 	// The old row is untouched and now has the new columns, empty.
 	var prompt string

@@ -35,6 +35,7 @@ type evalGroupDef struct {
 var evalGroupDefs = map[string]evalGroupDef{
 	"model":   {"COALESCE(g.model_id, '')", "(unknown model)"},
 	"style":   {"COALESCE(g.style_id, '')", "(no style)"},
+	"medium":  {"COALESCE(g.medium_id, '')", "(no medium)"},
 	"pose":    {"COALESCE(g.pose_id, '')", "(no pose)"},
 	"session": {"g.session_id", "(no session)"},
 	// lora_strength is part of the identity of a LoRA run — schema v2 added
@@ -45,7 +46,7 @@ var evalGroupDefs = map[string]evalGroupDef{
 		                         ELSE ' @ ' || printf('%.2f', g.lora_strength) END END`, "(no LoRA)"},
 }
 
-var evalGroupOrder = []string{"model", "style", "lora", "pose", "session"}
+var evalGroupOrder = []string{"model", "style", "medium", "lora", "pose", "session"}
 
 // criterionEligible restricts each criterion to the images it can be judged
 // on. Without this a coverage figure is a fraction of the whole corpus and

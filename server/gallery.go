@@ -25,6 +25,7 @@ type galleryItem struct {
 	LoraName     *string         `json:"loraName"`
 	LoraStrength *float64        `json:"loraStrength"`
 	StyleID      *string         `json:"styleId"`
+	MediumID     *string         `json:"mediumId"`
 	PoseID       *string         `json:"poseId"`
 	IsRepose     bool            `json:"isRepose"`
 	Seed         *int64          `json:"seed"`
@@ -60,6 +61,16 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 	if v := get("style"); v != "" {
 		conds = append(conds, "g.style_id = ?")
 		args = append(args, v)
+	}
+	// "none" is the control arm of the medium A/B, so it has to be selectable:
+	// without it the rows the experiment compares against are unreachable.
+	if v := get("medium"); v != "" {
+		if v == "none" {
+			conds = append(conds, "COALESCE(g.medium_id, '') = ''")
+		} else {
+			conds = append(conds, "g.medium_id = ?")
+			args = append(args, v)
+		}
 	}
 	if v := get("lora"); v != "" {
 		if v == "none" {
@@ -175,7 +186,7 @@ func (s *server) handleImagesList(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := s.db.Query(`
 		SELECT g.id, g.sha256, g.idx, g.node_id, g.session_id, g.prompt,
-		       g.model_id, g.lora_name, g.lora_strength, g.style_id,
+		       g.model_id, g.lora_name, g.lora_strength, g.style_id, g.medium_id,
 		       g.pose_id, g.is_repose, g.seed, g.score,
 		       g.critique != '', g.created_at, g.parent_id IS NOT NULL, g.origin
 		FROM gallery g
@@ -193,7 +204,7 @@ func (s *server) handleImagesList(w http.ResponseWriter, r *http.Request) {
 		it := &galleryItem{Aspects: []string{}, Caption: map[string]bool{}}
 		if err := rows.Scan(&it.ID, &it.Sha256, &it.Idx, &it.NodeID, &it.SessionID,
 			&it.Prompt, &it.ModelID, &it.LoraName, &it.LoraStrength, &it.StyleID,
-			&it.PoseID, &it.IsRepose, &it.Seed,
+			&it.MediumID, &it.PoseID, &it.IsRepose, &it.Seed,
 			&it.Score, &it.HasCritique, &it.CreatedAt, &it.IsImg2img, &it.Origin); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -276,14 +287,14 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 	var width, height *int64
 	err := s.db.QueryRow(`
 		SELECT g.id, g.sha256, g.idx, g.node_id, g.session_id, g.prompt,
-		       g.model_id, g.lora_name, g.lora_strength, g.style_id,
+		       g.model_id, g.lora_name, g.lora_strength, g.style_id, g.medium_id,
 		       g.pose_id, g.is_repose, g.seed, g.score,
 		       g.critique != '', g.created_at, g.parent_id IS NOT NULL, g.origin,
 		       b.width, b.height
 		FROM gallery g LEFT JOIN blobs b ON b.sha256 = g.sha256
 		WHERE g.id = ?`, id).Scan(
 		&it.ID, &it.Sha256, &it.Idx, &it.NodeID, &it.SessionID, &it.Prompt,
-		&it.ModelID, &it.LoraName, &it.LoraStrength, &it.StyleID,
+		&it.ModelID, &it.LoraName, &it.LoraStrength, &it.StyleID, &it.MediumID,
 		&it.PoseID, &it.IsRepose, &it.Seed, &it.Score,
 		&it.HasCritique, &it.CreatedAt, &it.IsImg2img, &it.Origin, &width, &height)
 	if err == sql.ErrNoRows {
