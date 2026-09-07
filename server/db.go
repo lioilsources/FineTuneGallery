@@ -68,6 +68,52 @@ WHERE i.blob_present = 1;
 CREATE INDEX nodes_medium ON nodes(medium_id);
 `
 
+// migV4 is the prompt translator's footprint.
+//
+// The booru-trained SDXL checkpoints (Pony, Illustrious, NoobAI, Animagine)
+// read Danbooru tags; the app sends them prose. Translating prose into tags
+// with an LLM is only defensible if the translation is deterministic and
+// attributable, so the gallery does it in one place and remembers every
+// answer: `translations` is keyed by a hash of (text, language, translator
+// version), which makes the app, the lab and the benchmark all receive the
+// same tags for the same input.
+//
+// On the node, prompt_sent is what actually reached the model (the user's
+// text stays in prompt so the intent is never lost) and translator names the
+// version that produced it, NULL when none did. The eval harness groups on
+// translator, so "does translation help" is a measured question rather than
+// an opinion. There is no separate translated flag: it would be a second
+// column for the fact translator already carries.
+const migV4 = `
+CREATE TABLE translations (
+  hash        TEXT PRIMARY KEY,
+  text        TEXT NOT NULL,
+  language    TEXT NOT NULL,
+  translator  TEXT NOT NULL,
+  tags        TEXT NOT NULL,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+ALTER TABLE nodes ADD COLUMN prompt_sent TEXT;
+ALTER TABLE nodes ADD COLUMN translator TEXT;
+
+DROP VIEW gallery;
+CREATE VIEW gallery AS
+SELECT i.id, i.sha256, i.idx, i.node_id, n.session_id, n.prompt,
+       n.prompt_sent, n.translator,
+       n.positive_prefix, n.model_id, n.lora_name, n.lora_strength,
+       n.style_id, n.medium_id, n.pose_id, n.is_repose, n.seed,
+       n.created_at, n.parent_id, n.source_image_id, n.origin,
+       COALESCE(r.score, 0)     AS score,
+       COALESCE(r.critique, '') AS critique
+FROM images i
+JOIN nodes n ON n.id = i.node_id
+LEFT JOIN ratings r ON r.image_id = i.id
+WHERE i.blob_present = 1;
+
+CREATE INDEX nodes_translator ON nodes(translator);
+`
+
 // openDB opens (creating if needed) the SQLite database and applies pending
 // migrations. Single-user service: one *sql.DB with WAL is all we need.
 func openDB(path string) (*sql.DB, error) {
@@ -94,6 +140,7 @@ var migrations = []mig{
 	{1, schemaV1},
 	{2, migV2},
 	{3, migV3},
+	{4, migV4},
 }
 
 // schemaVersion is the version openDB brings a database up to.

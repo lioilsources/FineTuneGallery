@@ -71,6 +71,20 @@ def healthz():
     return {"status": "ok", "loaded": _session is not None}
 
 
+@app.get("/tags")
+def tags():
+    """The general-tag vocabulary from selected_tags.csv, in the same
+    spelling /tag emits (underscores as spaces). The prompt translator
+    filters LLM output against this list: a tag the tagger cannot see is a
+    tag the SDXL booru models were not trained on either."""
+    _load()
+    names, _rating_idx, general_idx, _character_idx = _tags
+    return {
+        "model": MODEL_REPO,
+        "general": [names[i].replace("_", " ") for i in general_idx],
+    }
+
+
 @app.post("/tag")
 async def tag(request: Request):
     body = await request.body()

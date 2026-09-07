@@ -97,6 +97,7 @@ export const emptyFilter = Object.freeze({
   session: '',
   style: '', // art-style preset id (lab matrices are one style per row)
   medium: '', // '' | 'none' (the A/B control arm) | <medium preset id>
+  translator: '', // '' | 'none' (raw prose) | <translator version, e.g. prompt-tags@v1>
   lora: '', // '' | 'none' | <lora name>
   loraStrength: '', // two-decimal string, pairs with lora (0.4 and 1.4 are different runs)
   pose: '', // '' | 'none' | <pose id>
@@ -116,6 +117,7 @@ export function filterToParams(f) {
   if (f.session) p.set('session', String(f.session));
   if (f.style) p.set('style', f.style);
   if (f.medium) p.set('medium', f.medium);
+  if (f.translator) p.set('translator', f.translator);
   if (f.lora) p.set('lora', f.lora);
   if (f.loraStrength) p.set('lora_strength', f.loraStrength);
   if (f.pose) p.set('pose', f.pose);

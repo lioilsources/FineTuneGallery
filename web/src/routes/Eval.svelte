@@ -34,6 +34,7 @@
     model: 'Model',
     style: 'Art style',
     medium: 'Medium',
+    translator: 'Translator',
     lora: 'LoRA',
     pose: 'Pose',
     session: 'Session',
@@ -124,6 +125,7 @@
     else if (group === 'session') f.session = row.key;
     else if (group === 'pose') f.pose = row.key || 'none';
     else if (group === 'medium') f.medium = row.key || 'none';
+    else if (group === 'translator') f.translator = row.key || 'none';
     else if (group === 'lora') {
       const [name, strength] = row.key.split(' @ ');
       f.lora = row.key === '' ? 'none' : name;

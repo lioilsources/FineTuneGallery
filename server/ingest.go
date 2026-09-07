@@ -38,6 +38,8 @@ type ManifestNode struct {
 	LoraStrength   *float64        `json:"loraStrength"`
 	StyleID        *string         `json:"styleId"`
 	MediumID       *string         `json:"mediumId"`
+	PromptSent     *string         `json:"promptSent"` // what reached the model; prompt keeps the user's text
+	Translator     *string         `json:"translator"` // e.g. prompt-tags@v1; absent = raw prose
 	PoseID         *string         `json:"poseId"`
 	IsRepose       *bool           `json:"isRepose"`
 	Seed           *int64          `json:"seed"`
@@ -105,10 +107,10 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 	nodeStmt, err := tx.Prepare(`
 		INSERT INTO nodes (id, session_id, parent_id, source_image_id, prompt,
 		                   origin, model_id, lora_name, lora_strength, style_id,
-		                   medium_id, pose_id, is_repose, seed,
+		                   medium_id, prompt_sent, translator, pose_id, is_repose, seed,
 		                   negative_prompt, positive_prefix, width, height,
 		                   steps, cfg, denoise, sampler_name, scheduler, created_at)
-		VALUES (?, ?, ?, ?, ?, COALESCE(?, 'generated'), ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES (?, ?, ?, ?, ?, COALESCE(?, 'generated'), ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  prompt = excluded.prompt,
 		  origin = excluded.origin,
@@ -117,6 +119,8 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 		  lora_strength = COALESCE(excluded.lora_strength, nodes.lora_strength),
 		  style_id = COALESCE(excluded.style_id, nodes.style_id),
 		  medium_id = COALESCE(excluded.medium_id, nodes.medium_id),
+		  prompt_sent = COALESCE(excluded.prompt_sent, nodes.prompt_sent),
+		  translator = COALESCE(excluded.translator, nodes.translator),
 		  pose_id = COALESCE(excluded.pose_id, nodes.pose_id),
 		  is_repose = excluded.is_repose,
 		  seed = COALESCE(excluded.seed, nodes.seed),
@@ -154,7 +158,7 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 		if _, err := nodeStmt.Exec(
 			n.ID, m.Session.ID, n.ParentID, n.SourceImageID, n.Prompt,
 			n.Origin, n.ModelID, n.LoraName, n.LoraStrength, n.StyleID,
-			n.MediumID, n.PoseID, n.IsRepose, n.Seed,
+			n.MediumID, n.PromptSent, n.Translator, n.PoseID, n.IsRepose, n.Seed,
 			n.NegativePrompt, n.PositivePrefix, n.Width, n.Height,
 			n.Steps, n.Cfg, n.Denoise, n.SamplerName, n.Scheduler, n.CreatedAt,
 		); err != nil {

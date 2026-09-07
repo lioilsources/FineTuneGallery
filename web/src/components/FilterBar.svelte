@@ -38,6 +38,7 @@
       f.session !== '' ||
       f.style !== '' ||
       f.medium !== '' ||
+      f.translator !== '' ||
       f.lora !== '' ||
       f.pose !== '' ||
       f.uncaptioned ||
@@ -60,6 +61,7 @@
     }
     if (f.style) parts.push(`style: ${f.style}`);
     if (f.medium) parts.push(`medium: ${f.medium}`);
+    if (f.translator) parts.push(`translator: ${f.translator === 'none' ? 'raw prose' : f.translator}`);
     if (f.lora) parts.push(`lora: ${f.lora === 'none' ? 'none' : f.lora}${f.loraStrength ? ` @ ${f.loraStrength}` : ''}`);
     if (f.pose) parts.push(`pose: ${f.pose}`);
     if (f.uncaptioned) parts.push('uncaptioned');
