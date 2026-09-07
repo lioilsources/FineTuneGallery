@@ -5,6 +5,7 @@
   import Datasets from './routes/Datasets.svelte';
   import DatasetDetail from './routes/DatasetDetail.svelte';
   import Stats from './routes/Stats.svelte';
+  import Eval from './routes/Eval.svelte';
   import Toast from './components/Toast.svelte';
 
   const m = $derived(matchRoute($route));
@@ -15,6 +16,7 @@
   <nav class="topnav">
     <a class="chip" class:active={m.name === 'gallery' || m.name === 'image'} href="#/">Gallery</a>
     <a class="chip" class:active={m.name === 'datasets' || m.name === 'dataset'} href="#/datasets">Datasets</a>
+    <a class="chip" class:active={m.name === 'eval'} href="#/eval">Eval</a>
     <a class="chip" class:active={m.name === 'stats'} href="#/stats">Stats</a>
   </nav>
 </header>
@@ -29,6 +31,8 @@
   <DatasetDetail id={m.id} />
 {:else if m.name === 'stats'}
   <Stats />
+{:else if m.name === 'eval'}
+  <Eval />
 {/if}
 
 <Toast />

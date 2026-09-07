@@ -39,6 +39,7 @@ export function matchRoute(path) {
   if (path === '/datasets') return { name: 'datasets' };
   if ((m = path.match(/^\/datasets\/([^/]+)$/))) return { name: 'dataset', id: decodeURIComponent(m[1]) };
   if (path === '/stats') return { name: 'stats' };
+  if (path === '/eval') return { name: 'eval' };
   return { name: 'gallery' };
 }
 
@@ -95,8 +96,11 @@ export const emptyFilter = Object.freeze({
   score: 'all', // 'all' | 'liked' | 'disliked' | 'unrated'
   session: '',
   style: '', // art-style preset id (lab matrices are one style per row)
+  lora: '', // '' | 'none' | <lora name>
+  loraStrength: '', // two-decimal string, pairs with lora (0.4 and 1.4 are different runs)
+  pose: '', // '' | 'none' | <pose id>
   uncaptioned: false,
-  criterion: '', // '' | '<name>:1' | '<name>:-1'
+  criterion: '', // '' | '<name>:1' | '<name>:-1' | '<name>:none' (the eval rating queue)
 });
 
 export const galleryFilter = writable({ ...emptyFilter });
@@ -110,6 +114,9 @@ export function filterToParams(f) {
   else if (f.score === 'unrated') p.set('unrated', '1');
   if (f.session) p.set('session', String(f.session));
   if (f.style) p.set('style', f.style);
+  if (f.lora) p.set('lora', f.lora);
+  if (f.loraStrength) p.set('lora_strength', f.loraStrength);
+  if (f.pose) p.set('pose', f.pose);
   if (f.uncaptioned) p.set('captioned', '0');
   if (f.criterion) p.set('criterion', f.criterion);
   return p;

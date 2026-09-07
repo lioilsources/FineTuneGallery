@@ -66,6 +66,7 @@ func main() {
 	mux.HandleFunc("GET /api/sessions", s.handleSessions)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleSessionDelete)
 	mux.HandleFunc("GET /api/stats", s.handleStats)
+	mux.HandleFunc("GET /api/eval", s.handleEval)
 	mux.HandleFunc("GET /api/meta", s.handleMeta)
 
 	// Datasets.
