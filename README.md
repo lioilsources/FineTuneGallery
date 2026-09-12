@@ -8,10 +8,10 @@ LoRA trénink na GPU boxu. Hotová LoRA se objeví v appce automaticky (ComfyUI
 `/object_info/LoraLoader`).
 
 ```
-Ol1nLLM appka ──export──▶ NAS (tento repo)            GPU box
-                          Go API + Svelte web         make train DATASET=…
-                          SQLite + blobs              kohya sd-scripts
-                          WD14 tagger (CPU)     ──▶   → ComfyUI models/loras/
+Ol1nLLM appka ──export──▶ NAS (tento repo)      SPARK (LAN)      GPU box
+                          Go API + Svelte web   WD14 tagger      make train DATASET=…
+                          SQLite + blobs   ───▶ (CPU, :8097)     kohya sd-scripts
+                                                                 → ComfyUI models/loras/
 ```
 
 ## Struktura
@@ -20,13 +20,20 @@ Ol1nLLM appka ──export──▶ NAS (tento repo)            GPU box
 server/   Go 1.24 backend — ingest, galerie, datasety, kohya builder;
           embedne web (go:embed webdist), modernc.org/sqlite (CGO-free)
 web/      Svelte 5 + Vite SPA (build → server/webdist)
-tagger/   WD14 (wd-swinv2-tagger-v3) FastAPI sidecar, CPU ONNX
+tagger/   WD14 (wd-swinv2-tagger-v3) FastAPI sidecar, CPU ONNX — běží na
+          SPARKu (docker-compose.spark.yml), ne na NAS, viz níž
 train/    kohya trainer pro GPU box (Docker) + deploy do ComfyUI
 ```
 
-## Deploy (NAS)
+## Deploy (NAS + SPARK)
 
 ```bash
+# na SPARKu — tagger (jednou, a znovu jen při změně tagger/)
+ssh spark
+cd ~/deploy/FineTuneGallery && docker compose -f docker-compose.spark.yml up -d --build
+curl localhost:8097/healthz     # {"status":"ok"}
+
+# na NAS — appka; TAGGER_URL v docker-compose.yml už ukazuje na SPARK přes LAN
 cp .env.example .env            # DATA_DIR=/volume1/finetune
 docker compose up -d --build
 curl localhost:8092/healthz     # {"status":"ok"} (odkomentuj ports v compose)

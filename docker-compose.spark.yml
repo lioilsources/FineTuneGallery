@@ -1,0 +1,26 @@
+# WD14 tagger on SPARK — moved off the NAS 2026-09-12. JODA has 3,8 GB RAM
+# and 2 CPU; a loaded-but-idle ONNX session sat ~1,1 GB in swap and never
+# needed the GPU it doesn't have. Still CPU-only here too (onnxruntime with
+# CPUExecutionProvider, unchanged) — the move is about headroom, not speed.
+#
+#   ssh spark
+#   cd ~/deploy/FineTuneGallery && docker compose -f docker-compose.spark.yml up -d --build
+#
+# finetune-gallery on JODA reaches this over LAN — TAGGER_URL in
+# docker-compose.yml points at http://192.168.88.66:8097.
+#
+# Cache (~450 MB, the wd-swinv2-tagger-v3 ONNX weights) was copied from
+# JODA's docker volume on first deploy, not re-downloaded. A fresh deploy
+# without that copy just re-pulls it from HF on first /tag call.
+services:
+  wd14:
+    build: ./tagger
+    image: finetune-wd14:latest
+    container_name: finetune-wd14
+    restart: unless-stopped
+    environment:
+      - TAGGER_THRESHOLD=0.35
+    ports:
+      - "0.0.0.0:8097:8000"
+    volumes:
+      - ${WD14_CACHE:-/home/ol1n/deploy/FineTuneGallery/tagger-cache}:/cache

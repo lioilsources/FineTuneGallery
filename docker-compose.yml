@@ -10,6 +10,10 @@
 # + Allow (owner SSO e-mail).
 # LAN fallback: uncomment the ports mapping and point the app's FINETUNE_URL
 # at http://<nas-ip>:8092.
+#
+# WD14 tagger moved to SPARK 2026-09-12 (docker-compose.spark.yml) — the NAS
+# has 3,8 GB RAM and a loaded-but-idle ONNX session sat ~1,1 GB in swap.
+# TAGGER_URL below points at it over LAN; no wd14 service runs here anymore.
 
 services:
   finetune:
@@ -20,25 +24,12 @@ services:
     environment:
       - FINETUNE_ADDR=:8092
       - FINETUNE_DATA=/data
-      - TAGGER_URL=http://wd14:8000
+      - TAGGER_URL=http://192.168.88.66:8097
     volumes:
       - ${DATA_DIR:-./data}:/data
     # ports:
     #   - "8092:8092"          # LAN access without the tunnel
     networks: [finetune]
-    depends_on: [wd14]
-
-  wd14:
-    build: ./tagger
-    image: finetune-wd14:latest
-    container_name: finetune-wd14
-    restart: unless-stopped
-    environment:
-      - TAGGER_THRESHOLD=0.35
-    volumes:
-      - wd14-cache:/cache
-    networks: [finetune]
-    # CPU-only; no ports — reachable only from the finetune service.
 
   cloudflared:
     image: cloudflare/cloudflared:latest
@@ -49,9 +40,6 @@ services:
       - ./cloudflared:/etc/cloudflared:ro
     networks: [finetune]
     depends_on: [finetune]
-
-volumes:
-  wd14-cache:
 
 networks:
   finetune:
