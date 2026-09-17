@@ -247,6 +247,19 @@
     navigate('/');
   }
 
+  // Long-press "save image" is a browser/OS gesture we cannot rely on — mobile
+  // Safari and Chrome both hide or ignore it for some sources. The server hands
+  // the blob back as an attachment, so a plain link saves it every time.
+  const downloadName = $derived(img ? `ftg-${img.id}-${img.sha256.slice(0, 8)}.png` : 'image.png');
+
+  const downloadHref = $derived.by(() => {
+    if (!img) return '#';
+    const p = new URLSearchParams({ download: '1', name: downloadName });
+    return `/img/${img.sha256}?${p}`;
+  });
+
+  let downloadEl = $state(null);
+
   function copyPrompt() {
     if (!node || !node.prompt) return;
     navigator.clipboard.writeText(node.prompt).then(
@@ -274,6 +287,9 @@
         case 'k':
         case 'ArrowLeft':
           go(-1);
+          return true;
+        case 'd':
+          if (downloadEl) downloadEl.click();
           return true;
       }
     });
@@ -305,6 +321,13 @@
         <span class="dim">{listPos.idx >= 0 ? `${listPos.idx + 1} / ${listPos.count}` : ''}</span>
         <button class="chip" onclick={() => go(1)} disabled={listPos.idx < 0 || listPos.idx >= listPos.count - 1}
           >next ›</button
+        >
+        <a
+          class="chip"
+          bind:this={downloadEl}
+          href={downloadHref}
+          download={downloadName}
+          title="save the full-size PNG">⭳ download <kbd>d</kbd></a
         >
         <button class="chip ghost" onclick={goBack}>back <kbd>esc</kbd></button>
       </div>

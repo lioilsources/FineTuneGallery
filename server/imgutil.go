@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/image/draw"
 )
@@ -15,6 +16,9 @@ import (
 const thumbSize = 384
 
 // GET /img/{sha256} — full-size blob, content-addressed → cache forever.
+// ?download=1 flips it to an attachment: the browser saves the file instead of
+// opening it, which is the only deterministic "save this image" on mobile —
+// long-press is a gesture the OS may or may not offer.
 func (s *server) handleImg(w http.ResponseWriter, r *http.Request) {
 	sha := r.PathValue("sha256")
 	if !shaRe.MatchString(sha) {
@@ -23,7 +27,39 @@ func (s *server) handleImg(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	if r.URL.Query().Get("download") != "" {
+		name := downloadName(r.URL.Query().Get("name"), sha)
+		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	}
 	http.ServeFile(w, r, s.blobPath(sha))
+}
+
+// downloadName sanitises the client-suggested filename down to characters that
+// cannot break out of the Content-Disposition header, and falls back to the
+// content hash when nothing usable survives.
+func downloadName(suggested, sha string) string {
+	var b strings.Builder
+	for _, r := range suggested {
+		if b.Len() >= 80 {
+			break
+		}
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-', r == '_', r == '.':
+			b.WriteRune(r)
+		case r == ' ':
+			b.WriteByte('-')
+		}
+	}
+	name := strings.Trim(b.String(), ".-_")
+	if name == "" {
+		name = "image-" + sha[:12]
+	}
+	if !strings.HasSuffix(strings.ToLower(name), ".png") {
+		name += ".png"
+	}
+	return name
 }
 
 // GET /thumb/{sha256} — 384px JPEG, generated lazily and cached on disk.
