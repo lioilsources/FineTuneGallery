@@ -139,6 +139,47 @@ Dvě věci, které z toho dělají experiment a ne dojem:
 Typický běh: vygeneruj stejné prompty přes N checkpointů → oštítkuj kritéria →
 Eval → group by Model. Žebříček místo dojmů.
 
+## Picker modelů: sloučený, ne opsaný
+
+Model je jediný strukturální filtr galerie, takže model, který v pickeru
+chybí, je korpus, ke kterému se nedostaneš. Do 2026-09-22 byl seznam ručním
+opisem registru appky (`lib/models/image_model.dart`) — a šest checkpointů
+přidaných na SPARK 21. 9. tu prostě nebylo, protože se nikdo nedíval.
+
+`/api/meta` teď seznam **skládá ze tří zdrojů**, každý zná jinou část
+odpovědi:
+
+| zdroj | co ví | `source` |
+|---|---|---|
+| ComfyUI `/object_info` | které soubory box právě umí načíst | `comfyui` |
+| `kModels` (`server/meta.go`) | id appky, label, ekosystém LoRA, trainable | `registry` |
+| `nodes.model_id` | co v galerii reálně leží | `gallery` |
+
+Do pickeru se dostane sjednocení, takže výpadek jednoho zdroje nikoho
+neschová:
+
+- Checkpoint na boxu, který nikdo nezařadil, se objeví sám — bez labelu,
+  `trainable:false`. Ekosystém ani trainable se **nehádají**: obojí je lidské
+  rozhodnutí a tip by poslal trénink na špatný base model. Dopsat řádek do
+  `kModels` je pak kosmetika, ne podmínka viditelnosti.
+- Model, který z boxu zmizel, zůstává s `available:false` — jeho obrázky
+  v galerii pořád jsou.
+- Id, které existuje jen v odingestovaných řádcích, zůstává filtrovatelné.
+- Video checkpointy (`ltx…` v `checkpoints/`, celá rodina `wan2.2…`) se
+  přeskakují — appka generuje stills, byly by to řádky, na které nic nesedí.
+
+Box se čte na pozadí (po startu, pak co 5 minut), takže `/api/meta` na něm
+nikdy nečeká; výpadek drží poslední známý stav a hlásí se v odpovědi:
+
+```
+GET /api/meta → {"models": [...],
+                 "comfyui": {"ok": true, "ckpts": 16, "checkedAt": "…"}}
+```
+
+Konfigurace: `COMFYUI_URL` (prázdné = jen registr + galerie). Míří na SPARK
+**přes LAN** — `comfyui.ol1n.com` je za CF Access a na `/object_info` vrátí
+403 s přihlašovací stránkou.
+
 ## Překlad promptu do jazyka modelu
 
 Pony, Illustrious, NoobAI a Animagine jsou trénované na Danbooru tazích a

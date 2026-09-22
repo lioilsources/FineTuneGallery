@@ -25,6 +25,11 @@ services:
       - FINETUNE_ADDR=:8092
       - FINETUNE_DATA=/data
       - TAGGER_URL=http://192.168.88.66:8097
+      # Same box: the model picker is merged from what ComfyUI can actually
+      # load, so a checkpoint downloaded there shows up here without a deploy.
+      # Over LAN on purpose — comfyui.ol1n.com sits behind CF Access and would
+      # answer this with a 403 login page.
+      - COMFYUI_URL=http://192.168.88.66:8188
     volumes:
       - ${DATA_DIR:-./data}:/data
     # ports:

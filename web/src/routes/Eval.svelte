@@ -189,7 +189,7 @@
       <select class="sel" bind:value={scope.model} title="Restrict to one model">
         <option value="">All models</option>
         {#each $meta.models as m (m.id)}
-          <option value={m.id}>{m.label}</option>
+          <option value={m.id}>{m.label}{m.available ? '' : ' (offline)'}</option>
         {/each}
       </select>
       <select class="sel" bind:value={scope.session} title="Restrict to one session">

@@ -109,7 +109,9 @@
     <select class="sel" value={f.model} onchange={(e) => setF({ model: e.target.value })} title="Model">
       <option value="">All models</option>
       {#each $meta.models as mm (mm.id)}
-        <option value={mm.id}>{mm.label}</option>
+        <!-- The GPU box cannot load it right now, but its images are still
+             here and still worth filtering to — hence listed, marked. -->
+        <option value={mm.id}>{mm.label}{mm.available ? '' : ' (offline)'}</option>
       {/each}
     </select>
 
