@@ -309,11 +309,32 @@ func TestMetaCoversEveryModelTheAppCanGenerateWith(t *testing.T) {
 	// and model is the only structural filter the gallery has.
 	for _, id := range []string{
 		"flux-schnell", "flux-kontext", "flux-manga", "flux-fill",
-		"pony", "atomix-pony-anime", "juggernaut-xl", "juggernaut-xl-lightning",
-		"illustrious-xl", "noobai-xl", "wai-illustrious", "animagine-xl", "sd15",
+		"pony", "atomix-pony-anime", "autismmix-pony",
+		"juggernaut-xl", "juggernaut-xl-lightning", "cyberrealistic-xl",
+		"realvis-xl", "lustify-zenith", "sdxl-base",
+		"illustrious-xl", "noobai-xl", "wai-illustrious", "hassaku-illustrious",
+		"animagine-xl", "sd15",
 	} {
 		if modelByID(id) == nil {
 			t.Errorf("registr nezná %s", id)
+		}
+	}
+}
+
+// Two registry rows claiming the same file (a copy-paste while adding a
+// checkpoint) would make one of them permanently unavailable and let the other
+// swallow the discovery that should have replaced it.
+func TestRegistryFilesAreUnique(t *testing.T) {
+	seen := map[string]string{}
+	for _, m := range kModels {
+		for _, f := range []string{m.Ckpt, m.Unet} {
+			if f == "" {
+				continue
+			}
+			if prev, dup := seen[f]; dup {
+				t.Errorf("%s: soubor %s už drží %s", m.ID, f, prev)
+			}
+			seen[f] = m.ID
 		}
 	}
 }

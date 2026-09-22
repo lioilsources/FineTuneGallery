@@ -18,6 +18,7 @@ type server struct {
 	dataDir    string
 	captioner  *Captioner
 	translator *Translator
+	catalog    *Catalog
 }
 
 func env(key, fallback string) string {
@@ -42,6 +43,10 @@ func main() {
 	// prompt translation; the app then sends prose and records translated=false.
 	gatewayURL := env("LLM_GATEWAY_URL", "")
 	translateModel := env("TRANSLATE_MODEL", "prompt-tags")
+	// The GPU box's ComfyUI, for the model picker. Empty means the picker is
+	// built from the registry and the gallery alone — the same list this
+	// server served before, minus any checkpoint added since.
+	comfyURL := env("COMFYUI_URL", "")
 
 	for _, sub := range []string{"images", "thumbs", "datasets", "db", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
@@ -62,6 +67,14 @@ func main() {
 	if s.translator.Enabled() {
 		go s.translator.Run()
 	}
+	s.catalog = NewCatalog(db, comfyURL)
+	// One synchronous pass so the first /api/meta already carries the merge;
+	// Run keeps it current from there. An unreachable box is not fatal — the
+	// snapshot is built either way.
+	if err := s.catalog.Refresh(); err != nil {
+		log.Printf("catalog: initial refresh: %v", err)
+	}
+	go s.catalog.Run()
 
 	mux := http.NewServeMux()
 
@@ -110,8 +123,8 @@ func main() {
 		Handler:           logRequests(mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	log.Printf("finetune-gallery listening on %s (data: %s, tagger: %s, llm gateway: %q)",
-		addr, dataDir, taggerURL, gatewayURL)
+	log.Printf("finetune-gallery listening on %s (data: %s, tagger: %s, llm gateway: %q, comfyui: %q)",
+		addr, dataDir, taggerURL, gatewayURL, comfyURL)
 	log.Fatal(srv.ListenAndServe())
 }
 
