@@ -114,6 +114,31 @@ WHERE i.blob_present = 1;
 CREATE INDEX nodes_translator ON nodes(translator);
 `
 
+// migV5 is the second rater's footprint: a VLM judging the relational
+// criteria against the same reference a human sees (pose template, img2img
+// source).
+//
+// Its verdicts live here and never in image_criteria. The human label is the
+// ground truth the judge is calibrated against; writing the judge into that
+// table would make it grade its own homework. judge is alias@promptVersion,
+// so a new prompt or model starts an uncalibrated column instead of mixing
+// into the old one. verdict 0 is an abstention ("cannot tell") — it counts
+// towards coverage, never towards agreement or the eval. ref_key records what
+// the judge was shown, so a verdict can always be traced to its reference.
+const migV5 = `
+CREATE TABLE criteria_judgments (
+  image_id   TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+  criterion  TEXT NOT NULL,
+  judge      TEXT NOT NULL,
+  verdict    INTEGER NOT NULL CHECK(verdict IN (-1, 0, 1)),
+  reason     TEXT NOT NULL DEFAULT '',
+  ref_key    TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (image_id, criterion, judge)
+);
+CREATE INDEX criteria_judgments_judge ON criteria_judgments(judge, criterion);
+`
+
 // openDB opens (creating if needed) the SQLite database and applies pending
 // migrations. Single-user service: one *sql.DB with WAL is all we need.
 func openDB(path string) (*sql.DB, error) {
@@ -141,6 +166,7 @@ var migrations = []mig{
 	{2, migV2},
 	{3, migV3},
 	{4, migV4},
+	{5, migV5},
 }
 
 // schemaVersion is the version openDB brings a database up to.
