@@ -98,8 +98,48 @@
       await api.put(`/api/images/${id}/criteria`, { criterion: name, score: newScore });
     } catch {
       data.criteria = prev;
+      return;
+    }
+    // Rating may have unlocked a judge verdict (the server hides it until the
+    // human has rated) — or re-hidden it on un-rate.
+    if ($meta.judge?.enabled) refreshJudgments(id);
+  }
+
+  /* ---------------- VL judge ----------------
+     The verdict for a criterion arrives only after you rated it yourself:
+     seeing it first would make your label an echo and inflate the κ that
+     decides whether the judge is trusted. The server enforces that; the UI
+     just never asks for more. */
+
+  let judging = $state({});
+
+  async function refreshJudgments(imageId) {
+    try {
+      const d = await api.get(`/api/images/${imageId}`);
+      if (String(imageId) === String(id) && data) {
+        data.judgments = d.judgments || {};
+        data.judgedHidden = d.judgedHidden || [];
+      }
+    } catch {
+      /* toasted by api */
     }
   }
+
+  async function askJudge(name) {
+    const imageId = id;
+    judging = { ...judging, [name]: true };
+    try {
+      // The reply carries the verdict; it is deliberately not read here.
+      await api.post(`/api/images/${imageId}/judge?criterion=${name}`);
+      await refreshJudgments(imageId);
+    } catch {
+      /* toasted by api */
+    } finally {
+      judging = { ...judging, [name]: false };
+    }
+  }
+
+  const verdictMark = (v) => (v === 1 ? '+' : v === -1 ? '−' : '?');
 
   /* ---------------- aspects ---------------- */
 
@@ -389,6 +429,31 @@
                 <button class="chip mini" class:active={cur === 1} class:like={cur === 1} onclick={() => setCriterion(c, 1)}
                   >+</button
                 >
+                {#if $meta.judge?.enabled}
+                  {@const jd = data.judgments ? data.judgments[c] : undefined}
+                  {#if jd}
+                    <span
+                      class="judge-v"
+                      class:agree={jd.verdict !== 0 && jd.verdict === cur}
+                      class:disagree={jd.verdict !== 0 && jd.verdict !== cur}
+                      title={`${jd.judge}: ${jd.reason || 'no reason given'}`}
+                      >judge {verdictMark(jd.verdict)}{jd.verdict === 0
+                        ? ' unsure'
+                        : jd.verdict === cur
+                          ? ' agrees'
+                          : ' disagrees'}</span
+                    >
+                  {:else if (data.judgedHidden || []).includes(c)}
+                    <span class="judge-v dim" title="The judge has a verdict; rate first to see it">judge ✓ · rate to see</span>
+                  {:else}
+                    <button
+                      class="chip mini ghost"
+                      disabled={judging[c]}
+                      title="Ask the VL judge (verdict shows once you have rated)"
+                      onclick={() => askJudge(c)}>{judging[c] ? 'judging…' : 'judge'}</button
+                    >
+                  {/if}
+                {/if}
               </span>
             {/each}
           </div>
@@ -503,3 +568,18 @@
     </div>
   </main>
 {/if}
+
+<style>
+  .judge-v {
+    font-size: 11px;
+    margin-left: 4px;
+    white-space: nowrap;
+  }
+  .judge-v.agree {
+    color: var(--text-dim);
+  }
+  .judge-v.disagree {
+    color: var(--accent);
+    font-weight: 600;
+  }
+</style>

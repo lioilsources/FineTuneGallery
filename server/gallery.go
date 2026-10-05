@@ -155,6 +155,33 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 			args = append(args, name, val)
 		}
 	}
+	if v := get("judge"); v != "" {
+		name, val, ok := strings.Cut(v, ":")
+		if !ok || !slices.Contains(kCriteria, name) || (val != "disagree" && val != "unrated") {
+			return "", nil, "judge must be <criterion>:<disagree|unrated>"
+		}
+		if judgeFilterVersion == "" {
+			return "", nil, "judge filter: " + ErrJudgeDisabled.Error()
+		}
+		if val == "disagree" {
+			// The human said one thing, the judge the other — the labels the
+			// next prompt version is written from.
+			conds = append(conds, `EXISTS (SELECT 1 FROM criteria_judgments cj
+				JOIN image_criteria ic ON ic.image_id = cj.image_id AND ic.criterion = cj.criterion
+				WHERE cj.image_id = g.id AND cj.criterion = ? AND cj.judge = ?
+				  AND cj.verdict != 0 AND cj.verdict != ic.score)`)
+			args = append(args, name, judgeFilterVersion)
+		} else {
+			// Judged, not yet rated by a human: the calibration queue. It does
+			// not look at the verdict, so the judge cannot steer which images
+			// the human labels (see the README on the selection trap).
+			conds = append(conds, `EXISTS (SELECT 1 FROM criteria_judgments cj
+				WHERE cj.image_id = g.id AND cj.criterion = ? AND cj.judge = ?)
+				AND NOT EXISTS (SELECT 1 FROM image_criteria ic
+				WHERE ic.image_id = g.id AND ic.criterion = ?)`)
+			args = append(args, name, judgeFilterVersion, name)
+		}
+	}
 	if v := get("from"); v != "" {
 		conds = append(conds, "g.created_at >= ?")
 		args = append(args, v)
@@ -397,6 +424,30 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 		rows.Close()
 	}
 
+	// The judge's verdicts — only where the human has already rated (blind
+	// rater, see visibleJudgments). judgedHidden says a verdict exists without
+	// saying what it is, so the UI can skip offering to judge again.
+	judgments, err := s.visibleJudgments(id, criteria)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	judgedHidden := []string{}
+	if s.judge != nil {
+		if rows, err := s.db.Query(`SELECT criterion FROM criteria_judgments
+			WHERE image_id = ? AND judge = ? ORDER BY criterion`, id, s.judge.Version()); err == nil {
+			for rows.Next() {
+				var c string
+				if rows.Scan(&c) == nil {
+					if _, shown := judgments[c]; !shown {
+						judgedHidden = append(judgedHidden, c)
+					}
+				}
+			}
+			rows.Close()
+		}
+	}
+
 	// Aspect ids (the list view carries names; detail edits by id).
 	aspectIDs := []int{}
 	{
@@ -492,13 +543,15 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 	image["width"], image["height"] = width, height
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"image":       image,
-		"node":        node,
-		"rating":      rating,
-		"criteria":    criteria,
-		"aspects":     aspectIDs,
-		"captions":    captions,
-		"parentChain": chain,
+		"image":        image,
+		"node":         node,
+		"rating":       rating,
+		"criteria":     criteria,
+		"judgments":    judgments,
+		"judgedHidden": judgedHidden,
+		"aspects":      aspectIDs,
+		"captions":     captions,
+		"parentChain":  chain,
 	})
 }
 

@@ -18,6 +18,7 @@ type server struct {
 	dataDir    string
 	captioner  *Captioner
 	translator *Translator
+	judge      *Judge
 	catalog    *Catalog
 }
 
@@ -35,6 +36,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "tagbench" {
 		os.Exit(runTagbench(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "judgebench" {
+		os.Exit(runJudgebench(os.Args[2:]))
+	}
 
 	addr := env("FINETUNE_ADDR", ":8092")
 	dataDir := env("FINETUNE_DATA", "/data")
@@ -43,6 +47,9 @@ func main() {
 	// prompt translation; the app then sends prose and records translated=false.
 	gatewayURL := env("LLM_GATEWAY_URL", "")
 	translateModel := env("TRANSLATE_MODEL", "prompt-tags")
+	// The VL judge's LiteLLM alias (AiStack: qwen36, temperature 0). The alias
+	// is part of the judge's version, so changing it starts a new calibration.
+	judgeModel := env("JUDGE_MODEL", "judge")
 	// The GPU box's ComfyUI, for the model picker. Empty means the picker is
 	// built from the registry and the gallery alone — the same list this
 	// server served before, minus any checkpoint added since.
@@ -66,6 +73,11 @@ func main() {
 	s.translator = NewTranslator(db, gatewayURL, translateModel, taggerURL)
 	if s.translator.Enabled() {
 		go s.translator.Run()
+	}
+	s.judge = NewJudge(db, gatewayURL, judgeModel, s.blobPath, webPoses())
+	if s.judge.Enabled() {
+		judgeFilterVersion = s.judge.Version()
+		go s.judge.Run()
 	}
 	s.catalog = NewCatalog(db, comfyURL)
 	// One synchronous pass so the first /api/meta already carries the merge;
@@ -97,6 +109,9 @@ func main() {
 	mux.HandleFunc("GET /api/stats", s.handleStats)
 	mux.HandleFunc("GET /api/eval", s.handleEval)
 	mux.HandleFunc("POST /api/translate", s.handleTranslate)
+	mux.HandleFunc("POST /api/images/{id}/judge", s.handleJudgeImage)
+	mux.HandleFunc("POST /api/judge/sweep", s.handleJudgeSweep)
+	mux.HandleFunc("GET /api/judge", s.handleJudgeStatus)
 	mux.HandleFunc("GET /api/meta", s.handleMeta)
 
 	// Datasets.
