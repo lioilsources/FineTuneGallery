@@ -103,6 +103,7 @@ export const emptyFilter = Object.freeze({
   pose: '', // '' | 'none' | <pose id>
   uncaptioned: false,
   criterion: '', // '' | '<name>:1' | '<name>:-1' | '<name>:none' (the eval rating queue)
+  judge: '', // '' | '<name>:disagree' | '<name>:unrated' (VL judge queues; needs meta.judge.enabled)
 });
 
 export const galleryFilter = writable({ ...emptyFilter });
@@ -123,6 +124,7 @@ export function filterToParams(f) {
   if (f.pose) p.set('pose', f.pose);
   if (f.uncaptioned) p.set('captioned', '0');
   if (f.criterion) p.set('criterion', f.criterion);
+  if (f.judge) p.set('judge', f.judge);
   return p;
 }
 

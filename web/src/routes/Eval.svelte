@@ -20,6 +20,9 @@
   let minRated = $state(10);
   let scope = $state({ model: '', session: '', style: '', aspect: '' });
   let sortCol = $state('n'); // 'n' | 'like' | <criterion>
+  // Whose criterion labels count: human (always), judge (VL verdicts on
+  // criteria whose κ-gate is open), merged (human first, judge fills gaps).
+  let source = $state('human');
 
   let data = $state(null);
   let loading = $state(false);
@@ -47,8 +50,47 @@
     const p = new URLSearchParams();
     p.set('group', group);
     p.set('min', String(minRated));
+    if (source !== 'human') p.set('source', source);
     for (const [k, v] of Object.entries(scope)) if (v) p.set(k, v);
     return p;
+  }
+
+  // The gate board: κ against the human per criterion, shown under each
+  // column head whatever the source, so the human view says how close the
+  // judge is to being trusted.
+  let gates = $state(null);
+  $effect(() => {
+    if (!$meta.judge?.enabled) return;
+    api
+      .get('/api/judge')
+      .then((res) => (gates = res))
+      .catch(() => {});
+  });
+  const SOURCES = [
+    ['human', 'Human'],
+    ['judge', 'Judge'],
+    ['merged', 'Merged'],
+  ];
+
+  function gateOf(col) {
+    return gates?.criteria?.[col] ?? null;
+  }
+  const fmt2 = (v) => (v == null ? '—' : v.toFixed(2));
+  function gateText(st) {
+    const a = st.agreement;
+    if (a.gate === 'uncalibrated') return `uncalibrated · ${a.n} pairs`;
+    return `${a.gate} · κ ${fmt2(a.kappa)} ≥${fmt2(a.lower)}`;
+  }
+  function gateTitle(col, st) {
+    const a = st.agreement;
+    const t = gates.thresholds;
+    return (
+      `${gates.version} on ${col.replaceAll('_', ' ')}\n` +
+      `${st.judged} judged · ${st.abstained} unsure · ${a.n} pairs with a human label\n` +
+      `agreement ${a.po == null ? '—' : pct(a.po)} · κ ${fmt2(a.kappa)} (95% ${fmt2(a.lower)}–${fmt2(a.upper)})` +
+      ` · human-down caught ${a.downAgree == null ? '—' : pct(a.downAgree)}\n` +
+      `gate: ≥${t.minPairs} pairs, ≥${t.minHumanDown} human downs, κ ≥ ${t.minKappa}, lower ≥ ${t.minKappaLower}`
+    );
   }
 
   $effect(() => {
@@ -94,7 +136,7 @@
   const pct = (v) => `${Math.round(v * 100)}%`;
 
   function cellState(cell) {
-    if (!cell || cell.eligible === 0) return 'na'; // criterion cannot apply here
+    if (!cell || cell.eligible === 0 || cell.na) return 'na'; // criterion cannot apply / judge not trusted
     if (cell.rated === 0) return 'unrated';
     if (cell.rated < (data?.minRated ?? 0)) return 'thin';
     return 'ok';
@@ -103,12 +145,14 @@
   function cellTitle(row, col, cell) {
     if (!cell) return '';
     const name = col === 'like' ? 'likes' : col.replaceAll('_', ' ');
+    if (cell.na) return `${row.label} · ${name}: n/a under source=${source} — judge ${cell.na}`;
     if (cell.eligible === 0) return `${row.label}: no image here can be judged on ${name}`;
     if (cell.rated === 0) return `${row.label}: ${cell.eligible} image(s) eligible for ${name}, none rated yet`;
     return (
       `${row.label} · ${name}\n` +
       `${cell.up} up / ${cell.down} down of ${cell.eligible} eligible\n` +
       `rate ${pct(cell.rate)} · 95% interval ${pct(cell.lower)}–${pct(cell.upper)}` +
+      (cell.ratedJudge ? `\n${cell.ratedHuman ?? 0} human + ${cell.ratedJudge} judge verdicts` : '') +
       (cell.rated < (data?.minRated ?? 0) ? `\nbelow the ${data.minRated}-rating floor — not ranked` : '')
     );
   }
@@ -183,6 +227,25 @@
       <input id="min-rated" class="inp num" type="number" min="0" max="999" bind:value={minRated} />
       <a class="chip mini ghost" href={csvHref} download>CSV</a>
     </div>
+
+    {#if $meta.judge?.enabled}
+      <div class="filter-row">
+        <span class="lbl" title="Whose criterion labels count">labels</span>
+        <div class="seg" role="group" aria-label="Label source">
+          {#each SOURCES as [val, label] (val)}
+            <button
+              class="seg-btn"
+              class:active={source === val}
+              onclick={(e) => {
+                source = val;
+                e.currentTarget.blur();
+              }}>{label}</button
+            >
+          {/each}
+        </div>
+        <span class="dim small">judge counts only on criteria whose κ-gate is open</span>
+      </div>
+    {/if}
 
     <div class="filter-row">
       <span class="lbl">scope</span>
@@ -271,6 +334,10 @@
                 <button class="th-btn" onclick={() => (sortCol = col)}>
                   {col === 'like' ? 'likes' : col.replaceAll('_', ' ')}
                 </button>
+                {#if gateOf(col)}
+                  {@const st = gateOf(col)}
+                  <span class="gate gate-{st.agreement.gate}" title={gateTitle(col, st)}>{gateText(st)}</span>
+                {/if}
               </th>
             {/each}
           </tr>
@@ -288,7 +355,7 @@
                 {@const state = cellState(cell)}
                 <td class="cell-eval">
                   {#if state === 'na'}
-                    <span class="dim" title={cellTitle(row, col, cell)}>n/a</span>
+                    <span class="dim" title={cellTitle(row, col, cell)}>n/a{cell?.na ? ' · gate' : ''}</span>
                   {:else if state === 'unrated'}
                     <button class="gap" onclick={() => rateGap(row, col)} title={cellTitle(row, col, cell)}>
                       rate {cell.eligible}
@@ -313,8 +380,10 @@
                         ></span>
                         <span class="ivl-tick" style="left:{cell.rate * 100}%"></span>
                       </span>
-                      {#if cell.rated < cell.eligible}
-                        <span class="cov dim">{cell.rated}/{cell.eligible} rated</span>
+                      {#if cell.rated < cell.eligible || cell.ratedJudge}
+                        <span class="cov dim"
+                          >{cell.rated}/{cell.eligible} rated{cell.ratedJudge ? ` · ${cell.ratedJudge} by judge` : ''}</span
+                        >
                       {/if}
                     </button>
                   {/if}
@@ -407,6 +476,22 @@
     border-bottom: none;
     border-top: 1px solid var(--border);
     color: var(--text-dim);
+  }
+
+  .gate {
+    display: block;
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    white-space: nowrap;
+    color: var(--text-dim);
+  }
+  .gate-pass {
+    color: var(--accent);
+  }
+  .gate-fail {
+    opacity: 0.7;
   }
 
   .th-btn {

@@ -42,7 +42,8 @@
       f.lora !== '' ||
       f.pose !== '' ||
       f.uncaptioned ||
-      f.criterion !== ''
+      f.criterion !== '' ||
+      f.judge !== ''
   );
 
   const summary = $derived.by(() => {
@@ -67,6 +68,10 @@
     if (f.uncaptioned) parts.push('uncaptioned');
     if (f.criterion)
       parts.push(f.criterion.replace(':1', ' +').replace(':-1', ' −').replace(':none', ' — unrated'));
+    if (f.judge)
+      parts.push(
+        f.judge.replace(':disagree', ' — judge disagrees').replace(':unrated', ' — judged, not rated by you')
+      );
     return parts.join(' · ');
   });
 
@@ -154,6 +159,19 @@
         <option value="{c}:none">{c} — unrated</option>
       {/each}
     </select>
+
+    <!-- VL judge queues. disagree = the labels the next prompt version is
+         written from; unrated = the blind calibration queue (no verdict shown
+         until you rate). Hidden when no judge is configured. -->
+    {#if $meta.judge?.enabled}
+      <select class="sel" value={f.judge} onchange={(e) => setF({ judge: e.target.value })} title="VL judge queue">
+        <option value="">Any judge state</option>
+        {#each $meta.criteria as c (c)}
+          <option value="{c}:disagree">{c} — judge disagrees</option>
+          <option value="{c}:unrated">{c} — judged, rate blind</option>
+        {/each}
+      </select>
+    {/if}
 
     <button
       class="chip"

@@ -139,6 +139,68 @@ Dvě věci, které z toho dělají experiment a ne dojem:
 Typický běh: vygeneruj stejné prompty přes N checkpointů → oštítkuj kritéria →
 Eval → group by Model. Žebříček místo dojmů.
 
+### VL soudce — druhý hodnotitel s κ-gate
+
+Eval řadí jen tak rychle, jak rychle člověk kliká: při ~36 hodnoceních na
+rameno se meze sotva rozpojí a každý další A/B chce desítky kliků na skupinu.
+VLM, který dostane stejnou dvojici jako člověk — **REFERENCE** (OpenPose
+šablona / img2img zdroj) a pak **OUTPUT** — umí backlog ohodnotit. Ale jen
+tam, kde s člověkem prokazatelně souhlasí:
+
+```
+Eval → labels: Judge                                    (ilustrační, ne reálná data)
+                   pose adherence          source identity        source style
+                   pass · κ 0.75 ≥0.51     fail · κ 0.31 ≥0.08    uncalibrated · 12 pairs
+  Pony V6          88 %  n=64 · 41 judge   n/a · gate             n/a · gate
+```
+
+- **Člověk zůstává ground truth.** Verdikty jdou do `criteria_judgments`,
+  nikdy do `image_criteria`. Soudce = `alias@judge-v1`; nový prompt nebo jiný
+  model za aliasem je nový, nekalibrovaný soudce.
+- **κ, ne shoda.** `pose_adherence` má ~90 % up — soudce, který řekne „up" na
+  všechno, má 90% shodu a nulovou informaci. Cohenovo κ odečte shodu, kterou
+  dají dva hodnotitelé náhodou, a pro tohohle soudce vyjde 0.
+- **Gate per kritérium, na dolní mezi.** `pass` = ≥ 40 párů (člověk ±1 ∧ soudce
+  ±1), ≥ 8 lidských „down", κ ≥ 0.60 **a** dolní mez 95% intervalu ≥ 0.40.
+  Méně dat = `uncalibrated`, ne „skoro pass". Prahy jsou konstanty v
+  `kappa.go`; při `fail` se píše nový prompt podle nesouhlasů, prahy se nesnižují.
+- **Slepý hodnotitel.** Detail ukáže verdikt soudce až **po** tvém hodnocení
+  kritéria (vynucuje API, ne UI) — jinak by κ měřilo poslušnost.
+- **Výběrová past.** Kalibrační vzorek nesmí vybírat soudce. `judgebench`
+  losuje (seed) z lidsky ohodnocených obrázků; fronta `judge=…:unrated` se na
+  verdikt nedívá. Odpověď „unsure" (abstain) se do κ ani do Evalu nepočítá,
+  jen do pokrytí. Chybějící reference není abstain, ale chyba.
+
+`labels` v Evalu: **Human** (default, beze změny), **Judge** (jen verdikty
+kritérií s otevřenou gate, ostatní `n/a · gate`), **Merged** (lidský label
+vyhrává, soudce doplní neohodnocené). Buňka říká, kolik je od soudce.
+
+```
+finetune-gallery judgebench -criterion pose_adherence -n 80 -v
+judge judge@judge-v1 · gate: n ≥ 40, human down ≥ 8, κ ≥ 0.60, 95% low ≥ 0.40
+criterion       sampled  err  abst  pairs  po    κ     95% low  down agree  gate
+pose_adherence  50       0    1     49     0.92  0.75  0.51     0.80        pass
+```
+
+(čísla jsou z testovací fixture, ne z reálného běhu). Galerie: filtr
+`judge=<kritérium>:disagree` (podklad pro další verzi promptu) a
+`:unrated` (posouzeno soudcem, rate blind). Detail má u kritéria tlačítko
+„judge"; `POST /api/judge/sweep?criterion=&n=` dá do fronty neposouzené
+obrázky a první chyba gateway zbytek dávky zahodí (zavřené okno modelu).
+
+Konfigurace: `JUDGE_MODEL` (LiteLLM alias, default `judge` = qwen36 v AiStacku,
+temperature 0, thinking off), gateway sdílí `LLM_GATEWAY_URL`. Žádný fallback.
+
+**Kalibrace na SPARKu (ručně, okno llm 17–01):**
+
+1. AiStack: nasadit alias `judge` z `deploy/litellm_config.yaml` (restart
+   litellm); `curl …:8080/v1/models` ho musí vypsat.
+2. Ověřit **dva obrázky v jednom requestu** na `qwen36-agent` (jeden ruční
+   `POST /api/images/{id}/judge`). Když vLLM druhý obrázek odmítne, chce to
+   `--limit-mm-per-prompt '{"image":2}'` — restart produkčního kontejneru.
+3. NAS redeploy (migrace v5 proběhne sama), `judgebench -n 80` per kritérium
+   (~240 requestů, odhad 15–30 min sdíleného qwen36) → výsledek sem.
+
 ## Picker modelů: sloučený, ne opsaný
 
 Model je jediný strukturální filtr galerie, takže model, který v pickeru
@@ -242,14 +304,17 @@ POST /api/ingest/manifest                  → {"needed":[sha…]}
 PUT  /api/ingest/images/{sha256}           raw PNG
 POST /api/ingest/sessions/{id}/finalize    → {"images":N,"newBlobs":M}
 GET  /api/images?model=&aspect=&score=&style=&lora=&lora_strength=&pose=
-                &criterion=pose_adherence:1|-1|none&cursor=
+                &criterion=pose_adherence:1|-1|none&judge=pose_adherence:disagree|unrated&cursor=
 GET  /api/images/{id}                      detail + parentChain
 PUT  /api/images/{id}/rating|aspects|criteria|caption
 POST /api/images/{id}/autocaption
 GET  /api/datasets · POST …/items/from-filter · POST …/build · GET …/download
 GET  /api/stats · /api/meta · /healthz
 GET  /api/eval?group=model|style|lora|pose|session&min=10[&format=csv]
-                                           + všechny filtry /api/images
+                [&source=human|judge|merged]  + všechny filtry /api/images
+POST /api/images/{id}/judge?criterion=     verdikt VL soudce (502 bez fallbacku)
+POST /api/judge/sweep?criterion=&n=        fronta neposouzených
+GET  /api/judge                            gate tabule: κ, pokrytí, prahy
 ```
 
 ## Vývoj
