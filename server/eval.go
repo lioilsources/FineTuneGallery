@@ -1,10 +1,12 @@
 package main
 
 import (
+	"cmp"
 	"encoding/csv"
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,6 +72,14 @@ type evalCell struct {
 	Rate     *float64 `json:"rate"`  // up/rated — nil when nothing is rated
 	Lower    *float64 `json:"lower"` // Wilson 95% lower bound
 	Upper    *float64 `json:"upper"`
+
+	// Set only when the eval reads the judge (source=judge|merged), so the
+	// default human-only response is unchanged. Rated = RatedHuman + RatedJudge.
+	RatedHuman int `json:"ratedHuman,omitempty"`
+	RatedJudge int `json:"ratedJudge,omitempty"`
+	// NA explains a cell that cannot be measured at all under this source —
+	// "gate: fail" when the judge is not trusted on the criterion.
+	NA string `json:"na,omitempty"`
 }
 
 func (c *evalCell) finish() {
@@ -90,6 +100,32 @@ type evalRow struct {
 	Unrated  int                  `json:"unrated"`
 	Like     evalCell             `json:"like"`
 	Criteria map[string]*evalCell `json:"criteria"`
+}
+
+// evalSource says whose labels the criterion cells count.
+//
+//   - human (default): image_criteria only — the eval as it always was.
+//   - judge: the VL judge's verdicts only, and only on criteria whose κ-gate
+//     is open; every other criterion is n/a with the gate state as reason.
+//   - merged: the human label where there is one, the judge's verdict on
+//     images no human rated — again only on criteria with an open gate.
+//
+// Abstentions (verdict 0) never count: they are coverage, not evidence.
+type evalSource struct {
+	name   string
+	judge  string            // judge version; "" for human
+	passed []string          // criteria whose gate is open
+	gates  map[string]string // criterion → gate state, for n/a reasons
+}
+
+func (src evalSource) human() bool { return src.name == "human" }
+
+// na is the reason a criterion cannot be measured under this source, or "".
+func (src evalSource) na(criterion string) string {
+	if src.name != "judge" || slices.Contains(src.passed, criterion) {
+		return ""
+	}
+	return "gate: " + cmp.Or(src.gates[criterion], gateUncalibrated)
 }
 
 // evalLeader is the headline: who wins a criterion once sample size is taken
@@ -147,7 +183,32 @@ func (s *server) handleEval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rows, err := s.evalRows(def, where, args)
+	src := evalSource{name: q.Get("source")}
+	var judgeBlock map[string]any
+	switch src.name {
+	case "", "human":
+		src.name = "human"
+	case "judge", "merged":
+		if !s.judge.Enabled() {
+			writeErr(w, http.StatusServiceUnavailable, ErrJudgeDisabled.Error())
+			return
+		}
+		stats, err := judgeStats(s.db, s.judge.Version())
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		src.judge, src.passed, src.gates = s.judge.Version(), passedCriteria(stats), map[string]string{}
+		for c, st := range stats {
+			src.gates[c] = st.Agreement.Gate
+		}
+		judgeBlock = map[string]any{"version": src.judge, "criteria": stats}
+	default:
+		writeErr(w, http.StatusBadRequest, "source must be human, judge or merged")
+		return
+	}
+
+	rows, err := s.evalRows(def, where, args, src)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -179,19 +240,22 @@ func (s *server) handleEval(w http.ResponseWriter, r *http.Request) {
 			t.Up += got.Up
 			t.Down += got.Down
 			t.Eligible += got.Eligible
+			t.RatedHuman += got.RatedHuman
+			t.RatedJudge += got.RatedJudge
 		}
 	}
 	total.Like.finish()
 	for _, c := range kCriteria {
+		total.Criteria[c].NA = src.na(c)
 		total.Criteria[c].finish()
 	}
 
 	if q.Get("format") == "csv" {
-		writeEvalCSV(w, groupName, rows)
+		writeEvalCSV(w, groupName, rows, src)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	resp := map[string]any{
 		"group":    groupName,
 		"groups":   evalGroupOrder,
 		"criteria": kCriteria,
@@ -199,14 +263,49 @@ func (s *server) handleEval(w http.ResponseWriter, r *http.Request) {
 		"rows":     rows,
 		"total":    total,
 		"leaders":  evalLeaders(rows, minRated),
-	})
+	}
+	if !src.human() {
+		resp["source"] = src.name
+		resp["judge"] = judgeBlock
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// criteriaSource is the per-image label set the criterion tally reads, as a
+// subquery yielding (image_id, criterion, score, from_judge), plus its args.
+func criteriaSource(src evalSource) (string, []any) {
+	const human = `SELECT image_id, criterion, score, 0 AS from_judge FROM image_criteria`
+	if src.human() {
+		return human, nil
+	}
+	if len(src.passed) == 0 {
+		// No gate is open: the judge contributes nothing.
+		if src.name == "judge" {
+			return `SELECT image_id, criterion, score, 0 AS from_judge FROM image_criteria WHERE 0`, nil
+		}
+		return human, nil
+	}
+	args := []any{src.judge}
+	in := strings.TrimSuffix(strings.Repeat("?,", len(src.passed)), ",")
+	for _, c := range src.passed {
+		args = append(args, c)
+	}
+	judged := `SELECT cj.image_id, cj.criterion, cj.verdict AS score, 1 AS from_judge
+		FROM criteria_judgments cj
+		WHERE cj.judge = ? AND cj.verdict != 0 AND cj.criterion IN (` + in + `)`
+	if src.name == "judge" {
+		return judged, args
+	}
+	// merged: the human label wins wherever it exists.
+	return human + ` UNION ALL ` + judged + ` AND NOT EXISTS (SELECT 1 FROM image_criteria ic
+		WHERE ic.image_id = cj.image_id AND ic.criterion = cj.criterion)`, args
 }
 
 // evalRows runs the two aggregate queries — per-group totals plus criterion
 // eligibility, then per-group criterion tallies — and merges them. Splitting
 // them is deliberate: joining image_criteria into the totals query would
 // multiply COUNT(*) by the number of criteria rated on each image.
-func (s *server) evalRows(def evalGroupDef, where string, args []any) ([]*evalRow, error) {
+func (s *server) evalRows(def evalGroupDef, where string, args []any, src evalSource) ([]*evalRow, error) {
 	eligibleCols := make([]string, 0, len(kCriteria))
 	for _, c := range kCriteria {
 		cond, ok := criterionEligible[c]
@@ -253,22 +352,24 @@ func (s *server) evalRows(def evalGroupDef, where string, args []any) ([]*evalRo
 		return nil, err
 	}
 
+	labels, labelArgs := criteriaSource(src)
 	crit, err := s.db.Query(`
 		SELECT `+def.Expr+` AS k, ic.criterion,
 		       SUM(CASE WHEN ic.score = 1 THEN 1 ELSE 0 END),
-		       SUM(CASE WHEN ic.score = -1 THEN 1 ELSE 0 END)
+		       SUM(CASE WHEN ic.score = -1 THEN 1 ELSE 0 END),
+		       SUM(ic.from_judge)
 		FROM gallery g
-		JOIN image_criteria ic ON ic.image_id = g.id
+		JOIN (`+labels+`) ic ON ic.image_id = g.id
 		WHERE `+where+`
-		GROUP BY k, ic.criterion`, args...)
+		GROUP BY k, ic.criterion`, append(labelArgs, args...)...)
 	if err != nil {
 		return nil, err
 	}
 	defer crit.Close()
 	for crit.Next() {
 		var key, criterion string
-		var up, down int
-		if err := crit.Scan(&key, &criterion, &up, &down); err != nil {
+		var up, down, fromJudge int
+		if err := crit.Scan(&key, &criterion, &up, &down, &fromJudge); err != nil {
 			return nil, err
 		}
 		row, ok := byKey[key]
@@ -283,6 +384,9 @@ func (s *server) evalRows(def evalGroupDef, where string, args []any) ([]*evalRo
 			row.Criteria[criterion] = cell
 		}
 		cell.Up, cell.Down = up, down
+		if !src.human() {
+			cell.RatedJudge, cell.RatedHuman = fromJudge, up+down-fromJudge
+		}
 	}
 	if err := crit.Err(); err != nil {
 		return nil, err
@@ -290,7 +394,8 @@ func (s *server) evalRows(def evalGroupDef, where string, args []any) ([]*evalRo
 
 	for _, row := range out {
 		row.Like.finish()
-		for _, cell := range row.Criteria {
+		for name, cell := range row.Criteria {
+			cell.NA = src.na(name)
 			cell.finish()
 		}
 	}
@@ -377,7 +482,7 @@ func evalLeaders(rows []*evalRow, minRated int) map[string]*evalLeader {
 
 // writeEvalCSV emits the matrix as a spreadsheet — the format a comparison
 // actually gets argued over in.
-func writeEvalCSV(w http.ResponseWriter, groupName string, rows []*evalRow) {
+func writeEvalCSV(w http.ResponseWriter, groupName string, rows []*evalRow, src evalSource) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition",
 		fmt.Sprintf(`attachment; filename="eval_by_%s.csv"`, groupName))
@@ -388,6 +493,9 @@ func writeEvalCSV(w http.ResponseWriter, groupName string, rows []*evalRow) {
 	header := []string{groupName, "label", "images", "liked", "disliked", "unrated", "like_rate", "like_lower"}
 	for _, c := range kCriteria {
 		header = append(header, c+"_up", c+"_down", c+"_eligible", c+"_rate", c+"_lower")
+		if !src.human() {
+			header = append(header, c+"_rated_human", c+"_rated_judge", c+"_na")
+		}
 	}
 	cw.Write(header)
 
@@ -412,6 +520,9 @@ func writeEvalCSV(w http.ResponseWriter, groupName string, rows []*evalRow) {
 			rec = append(rec,
 				strconv.Itoa(cell.Up), strconv.Itoa(cell.Down),
 				strconv.Itoa(cell.Eligible), num(cell.Rate), num(cell.Lower))
+			if !src.human() {
+				rec = append(rec, strconv.Itoa(cell.RatedHuman), strconv.Itoa(cell.RatedJudge), cell.NA)
+			}
 		}
 		cw.Write(rec)
 	}
