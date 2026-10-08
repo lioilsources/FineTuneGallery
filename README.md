@@ -58,7 +58,17 @@ Appka: `FINETUNE_URL=https://finetune.ol1n.com` (default) nebo LAN
 /data/thumbs/                    lazy 384px JPEG
 /data/db/finetune.sqlite         metadata, ratingy, captiony, datasety
 /data/datasets/<name>/           built kohya balíčky
+/data/stylemaps/                 packy map stylů pro appku (viz níž)
 ```
+
+### Mapy stylů
+
+`GET /stylemaps/…` servíruje statické packy pro picker stylů v appce
+(`index.json`, `<sada>/map.json`, `<sada>/atlas.webp`, `<sada>/t/<i>.webp`).
+Server je nestaví ani nečte — vznikají v Ol1nLLM (`tools/stylemap`) a na NAS se
+kopírují (`make stylemap-publish` tamtéž). Jen soubory: žádné výpisy adresářů,
+žádné soubory začínající tečkou. Manifesty se revalidují při každém otevření,
+obrázky se cachují den, protože pack se přestavuje pod stejnými jmény.
 
 Caption vrstvy: `auto` (WD14 booru tagy, nikdy se nepřepisuje) < `refined`
 (LLM, v1.5) < `human`. Do tréninku jde `trigger word, <efektivní caption>`.
