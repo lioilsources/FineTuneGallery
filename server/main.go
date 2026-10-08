@@ -55,7 +55,7 @@ func main() {
 	// server served before, minus any checkpoint added since.
 	comfyURL := env("COMFYUI_URL", "")
 
-	for _, sub := range []string{"images", "thumbs", "datasets", "db", "tmp"} {
+	for _, sub := range []string{"images", "thumbs", "datasets", "stylemaps", "db", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
 			log.Fatalf("mkdir %s: %v", sub, err)
 		}
@@ -128,6 +128,8 @@ func main() {
 	// Images + SPA.
 	mux.HandleFunc("GET /img/{sha256}", s.handleImg)
 	mux.HandleFunc("GET /thumb/{sha256}", s.handleThumb)
+	// Style-map packs for the app's picker (static, built by Ol1nLLM tools/stylemap).
+	mux.HandleFunc("GET /stylemaps/{path...}", s.handleStylemap)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -148,7 +150,7 @@ func logRequests(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		// Keep image/thumb serving out of the log noise.
-		if r.URL.Path != "/healthz" && !hasPrefixAny(r.URL.Path, "/img/", "/thumb/", "/assets/") {
+		if r.URL.Path != "/healthz" && !hasPrefixAny(r.URL.Path, "/img/", "/thumb/", "/assets/", "/stylemaps/") {
 			log.Printf("%s %s (%s)", r.Method, r.URL.Path, time.Since(start).Round(time.Millisecond))
 		}
 	})
