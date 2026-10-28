@@ -57,9 +57,19 @@ func (s *server) handleDatasetBuild(w http.ResponseWriter, r *http.Request) {
 		preset = p
 	}
 
+	if d.TempMax != nil && !taxoEnabled {
+		writeErr(w, http.StatusBadRequest, "dataset has a tempMax but "+errTaxoDisabled.Error())
+		return
+	}
+	// Blocked images never leave the box, whatever the dataset says; the
+	// temperature limit is the dataset's own (README records both).
 	rows, err := s.db.Query(`
-		SELECT di.image_id, i.sha256 FROM dataset_items di
+		SELECT di.image_id, i.sha256, it.temperature, COALESCE(it.unsure, 0),
+		       EXISTS (SELECT 1 FROM taxonomy_blocks tb JOIN images bi ON bi.id = tb.image_id
+		               WHERE bi.sha256 = i.sha256)
+		FROM dataset_items di
 		JOIN images i ON i.id = di.image_id
+		LEFT JOIN image_temperature it ON it.image_id = di.image_id
 		WHERE di.dataset_id = ? AND i.blob_present = 1`, d.ID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -67,12 +77,18 @@ func (s *server) handleDatasetBuild(w http.ResponseWriter, r *http.Request) {
 	}
 	type item struct{ imageID, sha string }
 	var items []item
+	var tempStats datasetTemp
 	for rows.Next() {
 		var it item
-		if err := rows.Scan(&it.imageID, &it.sha); err != nil {
+		var temp *float64
+		var unsure, blocked bool
+		if err := rows.Scan(&it.imageID, &it.sha, &temp, &unsure, &blocked); err != nil {
 			rows.Close()
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
+		}
+		if !tempStats.admit(temp, unsure, blocked, d.TempMax) {
+			continue
 		}
 		items = append(items, it)
 	}
@@ -198,7 +214,7 @@ seed = 42
 - trigger word: %s
 - images: %d, repeats: %d
 - network dim/alpha: %d/%d
-%s%s
+%s%s%s
 ## Train (on the GPU box, from the finetune-gallery repo)
 
     make -C train train DATASET=%s
@@ -219,7 +235,7 @@ The LoRA will work on models in the %q ecosystem. Cross-ecosystem use degrades
 quality — train a sibling dataset per target ecosystem instead.
 `, d.Name, nonEmpty(aspectName, "—"), d.BaseModel, model.Ckpt, model.Ecosystem,
 		d.TriggerWord, len(items), d.Repeats, preset.NetworkDim, preset.NetworkAlpha,
-		note, captionWarn, d.Name, outputName, model.Ecosystem)
+		note, captionWarn, tempStats.readme(d.TempMax), d.Name, outputName, model.Ecosystem)
 
 	files := map[string]string{
 		"dataset.toml":      datasetToml,
@@ -243,7 +259,57 @@ quality — train a sibling dataset per target ecosystem instead.
 		"imageCount":      len(items),
 		"missingCaptions": missingCaptions,
 		"outputName":      outputName + ".safetensors",
+		"temperature":     tempStats,
 	})
+}
+
+// datasetTemp is what the export did with the content temperature.
+type datasetTemp struct {
+	Max      *float64 `json:"max"`      // highest temperature in the package
+	Unrated  int      `json:"unrated"`  // included without a temperature (no limit set)
+	Excluded int      `json:"excluded"` // over the limit, unsure, or unrated under a limit
+	Blocked  int      `json:"blocked"`  // minor rule — always excluded
+}
+
+func (t *datasetTemp) admit(temp *float64, unsure, blocked bool, limit *float64) bool {
+	if blocked {
+		t.Blocked++
+		return false
+	}
+	if limit != nil && (temp == nil || unsure || *temp > *limit) {
+		t.Excluded++
+		return false
+	}
+	if temp == nil {
+		t.Unrated++
+	} else if t.Max == nil || *temp > *t.Max {
+		v := *temp
+		t.Max = &v
+	}
+	return true
+}
+
+func (t datasetTemp) readme(limit *float64) string {
+	if !taxoEnabled && t.Blocked == 0 {
+		return ""
+	}
+	lim := "none"
+	if limit != nil {
+		lim = fmt.Sprintf("%.2f", *limit)
+	}
+	mx := "—"
+	if t.Max != nil {
+		mx = fmt.Sprintf("%.3f", *t.Max)
+	}
+	return fmt.Sprintf(`
+## Content temperature
+
+- limit (dataset tempMax): %s
+- max temperature in this package: %s
+- images without a temperature: %d
+- excluded by the limit (over it, unsure or unrated): %d
+- excluded by the content policy (minor rule): %d
+`, lim, mx, t.Unrated, t.Excluded, t.Blocked)
 }
 
 func copyFile(src, dst string) error {

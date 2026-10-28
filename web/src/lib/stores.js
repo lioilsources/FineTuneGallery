@@ -104,6 +104,12 @@ export const emptyFilter = Object.freeze({
   uncaptioned: false,
   criterion: '', // '' | '<name>:1' | '<name>:-1' | '<name>:none' (the eval rating queue)
   judge: '', // '' | '<name>:disagree' | '<name>:unrated' (VL judge queues; needs meta.judge.enabled)
+  // content taxonomy (needs meta.taxonomy.enabled)
+  taxo: '', // comma list of node:value (AND)
+  tempMax: 1, // temperature slider; 1 = off
+  shared: false, // view=shared: safe and not unsure only
+  ratingUnsure: false, // rating ensemble disagreed → human queue
+  labelQueue: false, // the blind labelling sample
 });
 
 export const galleryFilter = writable({ ...emptyFilter });
@@ -125,6 +131,11 @@ export function filterToParams(f) {
   if (f.uncaptioned) p.set('captioned', '0');
   if (f.criterion) p.set('criterion', f.criterion);
   if (f.judge) p.set('judge', f.judge);
+  if (f.taxo) p.set('taxo', f.taxo);
+  if (f.tempMax < 1) p.set('temp_max', String(f.tempMax));
+  if (f.shared) p.set('view', 'shared');
+  if (f.ratingUnsure) p.set('rating_unsure', '1');
+  if (f.labelQueue) p.set('label_queue', '1');
   return p;
 }
 

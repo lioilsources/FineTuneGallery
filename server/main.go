@@ -39,6 +39,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "judgebench" {
 		os.Exit(runJudgebench(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "taxobench" {
+		os.Exit(runTaxobench(os.Args[2:]))
+	}
 
 	addr := env("FINETUNE_ADDR", ":8092")
 	dataDir := env("FINETUNE_DATA", "/data")
@@ -54,6 +57,15 @@ func main() {
 	// built from the registry and the gallery alone — the same list this
 	// server served before, minus any checkpoint added since.
 	comfyURL := env("COMFYUI_URL", "")
+	// Content taxonomy (taxo/): facets, temperature slider and filters, the
+	// import endpoint. The minor block is not behind this flag.
+	taxoEnabled = env("FINETUNE_TAXONOMY", "") == "1"
+	// Public instance: every list and blob is the shared view (safe, not
+	// unsure). Meaningless without the taxonomy, so it refuses to start.
+	taxoPublicView = env("FINETUNE_PUBLIC_VIEW", "") == "1"
+	if taxoPublicView && !taxoEnabled {
+		log.Fatal("FINETUNE_PUBLIC_VIEW=1 needs FINETUNE_TAXONOMY=1 (no temperature, no safe view)")
+	}
 
 	for _, sub := range []string{"images", "thumbs", "datasets", "stylemaps", "db", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
@@ -87,6 +99,11 @@ func main() {
 		log.Printf("catalog: initial refresh: %v", err)
 	}
 	go s.catalog.Run()
+	go func() {
+		if n := sweepMinors(db); n > 0 {
+			log.Printf("taxonomy: startup sweep changed %d block states", n)
+		}
+	}()
 
 	mux := http.NewServeMux()
 
@@ -113,6 +130,16 @@ func main() {
 	mux.HandleFunc("POST /api/judge/sweep", s.handleJudgeSweep)
 	mux.HandleFunc("GET /api/judge", s.handleJudgeStatus)
 	mux.HandleFunc("GET /api/meta", s.handleMeta)
+
+	// Content taxonomy (FINETUNE_TAXONOMY=1).
+	mux.HandleFunc("POST /api/taxonomy/import", s.handleTaxonomyImport)
+	mux.HandleFunc("GET /api/taxonomy/thresholds", s.handleThresholdsGet)
+	mux.HandleFunc("PUT /api/taxonomy/thresholds", s.handleThresholdsPut)
+	mux.HandleFunc("GET /api/taxonomy/audit", s.handleTaxonomyAudit)
+	mux.HandleFunc("GET /api/taxonomy/kappa", s.handleTaxoKappa)
+	mux.HandleFunc("GET /api/images/{id}/taxonomy", s.handleImageTaxonomy)
+	mux.HandleFunc("PUT /api/images/{id}/taxonomy", s.handleImageTaxonomyPut)
+	mux.HandleFunc("GET /api/images/{id}/similar", s.handleSimilar)
 
 	// Datasets.
 	mux.HandleFunc("GET /api/datasets", s.handleDatasetsList)

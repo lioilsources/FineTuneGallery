@@ -142,8 +142,8 @@ func TestMigrationV5KeepsV4Rows(t *testing.T) {
 	}
 	var version, score int
 	db.QueryRow(`PRAGMA user_version`).Scan(&version)
-	if version != 5 {
-		t.Fatalf("user_version = %d, want 5", version)
+	if version != schemaVersion() {
+		t.Fatalf("user_version = %d, want %d", version, schemaVersion())
 	}
 	if err := db.QueryRow(`SELECT score FROM image_criteria WHERE image_id = 'i'`).Scan(&score); err != nil || score != -1 {
 		t.Fatalf("human label after v5: score=%d err=%v", score, err)

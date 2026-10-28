@@ -1,0 +1,12 @@
+# taxo/ evaluators (GPU box). The server needs none of this.
+# torch with CUDA: pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch>=2.6
+transformers>=4.56
+onnxruntime-gpu>=1.20
+onnx>=1.17
+pandas>=2.2
+pyyaml>=6
+pillow>=11
+numpy>=2
+huggingface_hub>=0.27
+requests>=2.32

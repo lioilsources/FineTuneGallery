@@ -139,6 +139,123 @@ CREATE TABLE criteria_judgments (
 CREATE INDEX criteria_judgments_judge ON criteria_judgments(judge, criterion);
 `
 
+// migV6 is the content taxonomy's footprint (taxo/taxonomy.yaml, UC25).
+//
+// image_taxonomy holds every evaluator's answer per node, one row per value
+// (a multi-label node is several rows), next to the consensus and the human
+// label — never instead of them, for the same reason criteria_judgments is
+// not image_criteria: the human label is what the evaluators are calibrated
+// against. taxonomy_version is stored per row so a vocabulary change starts a
+// new column of answers instead of mixing into the old one.
+//
+// image_temperature is the rating ensemble. band is stored (not derived per
+// query) so the gallery filter stays a plain comparison; a threshold change
+// rewrites it in one UPDATE, and that change is itself audited. disagree is
+// the ensemble's own unsure, unsure adds the conformal explicit guard.
+//
+// image_embeddings is the frozen SigLIP 2 vector the multi-head classifier and
+// "similar images" read. modernc/sqlite cannot load sqlite-vec (no C
+// extensions), so it is a float32 BLOB with a brute-force scan in Go: 20k
+// images × 1152 dims is ~25 MFLOP, milliseconds.
+//
+// taxonomy_blocks is the minor rule: an image here is out of the gallery view
+// — and so out of the list, the eval, every dataset — and its blob is not
+// served. "quarantine" is reversible (only WD14 had spoken), "block" is not.
+// The view checks by sha256, so a re-ingested copy of the same blob stays out.
+// taxonomy_audit has no foreign key on purpose: it outlives the image.
+const migV6 = `
+CREATE TABLE image_taxonomy (
+  image_id         TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+  node             TEXT NOT NULL,
+  evaluator        TEXT NOT NULL,  -- wd14 | siglip | vlm | head | consensus | human
+  value            TEXT NOT NULL,  -- '' = consensus row with no agreed value
+  conf             REAL,
+  unsure           INTEGER NOT NULL DEFAULT 0,
+  taxonomy_version INTEGER NOT NULL,
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (image_id, node, evaluator, value)
+);
+CREATE INDEX image_taxonomy_lookup ON image_taxonomy(evaluator, node, value);
+
+CREATE TABLE image_temperature (
+  image_id         TEXT PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+  temperature      REAL NOT NULL CHECK(temperature >= 0 AND temperature <= 1),
+  band             TEXT NOT NULL CHECK(band IN ('safe', 'suggestive', 'nsfw', 'explicit')),
+  disagree         INTEGER NOT NULL DEFAULT 0,
+  unsure           INTEGER NOT NULL DEFAULT 0,
+  parts_json       TEXT NOT NULL DEFAULT '{}',
+  taxonomy_version INTEGER NOT NULL,
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX image_temperature_band ON image_temperature(band, unsure);
+
+CREATE TABLE image_embeddings (
+  image_id   TEXT PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+  model      TEXT NOT NULL,
+  dim        INTEGER NOT NULL,
+  vec        BLOB NOT NULL,          -- little-endian float32 × dim, L2-normalised
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE temperature_bands (
+  id             INTEGER PRIMARY KEY,
+  safe_max       REAL NOT NULL,
+  suggestive_max REAL NOT NULL,
+  nsfw_max       REAL NOT NULL,
+  explicit_guard REAL,               -- conformal recall guard; NULL = none
+  source         TEXT NOT NULL,      -- default | pseudo:… | human | manual
+  fit_json       TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE taxonomy_blocks (
+  image_id   TEXT PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+  state      TEXT NOT NULL CHECK(state IN ('quarantine', 'block')),
+  reason     TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE taxonomy_audit (
+  id       INTEGER PRIMARY KEY,
+  at       TEXT NOT NULL DEFAULT (datetime('now')),
+  kind     TEXT NOT NULL,            -- block | quarantine | release | thresholds
+  image_id TEXT,
+  sha256   TEXT,
+  detail   TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX taxonomy_audit_at ON taxonomy_audit(at);
+
+-- The human labelling sample (taxobench -sample): stratified, seeded, chosen
+-- before anyone sees an evaluator's answer.
+CREATE TABLE taxonomy_label_queue (
+  image_id   TEXT PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+  stratum    TEXT NOT NULL,
+  seed       INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Highest temperature a kohya export may contain; NULL = no limit.
+ALTER TABLE datasets ADD COLUMN temp_max REAL;
+
+DROP VIEW gallery;
+CREATE VIEW gallery AS
+SELECT i.id, i.sha256, i.idx, i.node_id, n.session_id, n.prompt,
+       n.prompt_sent, n.translator,
+       n.positive_prefix, n.model_id, n.lora_name, n.lora_strength,
+       n.style_id, n.medium_id, n.pose_id, n.is_repose, n.seed,
+       n.created_at, n.parent_id, n.source_image_id, n.origin,
+       COALESCE(r.score, 0)     AS score,
+       COALESCE(r.critique, '') AS critique
+FROM images i
+JOIN nodes n ON n.id = i.node_id
+LEFT JOIN ratings r ON r.image_id = i.id
+WHERE i.blob_present = 1
+  AND NOT EXISTS (SELECT 1 FROM taxonomy_blocks tb
+                  JOIN images bi ON bi.id = tb.image_id
+                  WHERE bi.sha256 = i.sha256);
+`
+
 // openDB opens (creating if needed) the SQLite database and applies pending
 // migrations. Single-user service: one *sql.DB with WAL is all we need.
 func openDB(path string) (*sql.DB, error) {
@@ -167,6 +284,7 @@ var migrations = []mig{
 	{3, migV3},
 	{4, migV4},
 	{5, migV5},
+	{6, migV6},
 }
 
 // schemaVersion is the version openDB brings a database up to.

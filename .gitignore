@@ -10,3 +10,4 @@ train/.env
 train/work/
 *.log
 .DS_Store
+__pycache__/
