@@ -13,6 +13,7 @@
   } from '../lib/stores.js';
   import { api } from '../lib/api.js';
   import { onGlobalKeys } from '../lib/keyboard.js';
+  import TaxonomyPanel from '../components/TaxonomyPanel.svelte';
 
   let { id } = $props();
 
@@ -458,6 +459,10 @@
             {/each}
           </div>
         </section>
+      {/if}
+
+      {#if $meta.taxonomy?.enabled}
+        <TaxonomyPanel {id} />
       {/if}
 
       <section>

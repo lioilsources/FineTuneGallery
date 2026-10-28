@@ -1,0 +1,679 @@
+{
+  "generated_by": "taxo/gen_schema.py — do not edit, edit taxo/taxonomy.yaml",
+  "version": 1,
+  "source_sha256": "6df4c4ce338e3bd96a1454160f3ba7341f28bb9d8a48745a5e43feb1deb0d76a",
+  "bands": [
+    "safe",
+    "suggestive",
+    "nsfw",
+    "explicit"
+  ],
+  "default_thresholds": {
+    "safe_max": 0.2,
+    "suggestive_max": 0.45,
+    "nsfw_max": 0.7
+  },
+  "wd14_levels": {
+    "general": 0.0,
+    "sensitive": 0.333,
+    "questionable": 0.667,
+    "explicit": 1.0
+  },
+  "minor_block": {
+    "node": "person.age_group",
+    "values": [
+      "child",
+      "teen"
+    ],
+    "min_conf": 0.3,
+    "wd14_signals": [
+      "child",
+      "loli",
+      "shota",
+      "aged down",
+      "baby",
+      "kindergarten uniform",
+      "child on child"
+    ]
+  },
+  "nodes": [
+    {
+      "id": "subject",
+      "kind": "multi",
+      "when": "",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Námět",
+      "values": [
+        {
+          "id": "people",
+          "filterable": true
+        },
+        {
+          "id": "animals",
+          "filterable": true
+        },
+        {
+          "id": "environment",
+          "filterable": true
+        },
+        {
+          "id": "objects",
+          "filterable": true
+        },
+        {
+          "id": "abstract",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.age_group",
+      "kind": "ordinal",
+      "when": "people",
+      "facet": true,
+      "humanRequired": true,
+      "labelCs": "Věková skupina (vizuálně)",
+      "values": [
+        {
+          "id": "child",
+          "filterable": false
+        },
+        {
+          "id": "teen",
+          "filterable": false
+        },
+        {
+          "id": "young_adult",
+          "filterable": true
+        },
+        {
+          "id": "adult",
+          "filterable": true
+        },
+        {
+          "id": "elderly",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.gender_presentation",
+      "kind": "multi",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Prezentace pohlaví",
+      "values": [
+        {
+          "id": "feminine",
+          "filterable": true
+        },
+        {
+          "id": "masculine",
+          "filterable": true
+        },
+        {
+          "id": "androgynous",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.skin_tone",
+      "kind": "ordinal",
+      "when": "people",
+      "facet": true,
+      "humanRequired": true,
+      "labelCs": "Tón pleti",
+      "values": [
+        {
+          "id": "light",
+          "filterable": true
+        },
+        {
+          "id": "medium_light",
+          "filterable": true
+        },
+        {
+          "id": "medium",
+          "filterable": true
+        },
+        {
+          "id": "medium_dark",
+          "filterable": true
+        },
+        {
+          "id": "dark",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.hair.length",
+      "kind": "ordinal",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Délka vlasů",
+      "values": [
+        {
+          "id": "bald",
+          "filterable": true
+        },
+        {
+          "id": "short",
+          "filterable": true
+        },
+        {
+          "id": "medium",
+          "filterable": true
+        },
+        {
+          "id": "long",
+          "filterable": true
+        },
+        {
+          "id": "very_long",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.hair.style",
+      "kind": "multi",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Účes",
+      "values": [
+        {
+          "id": "straight",
+          "filterable": true
+        },
+        {
+          "id": "wavy",
+          "filterable": true
+        },
+        {
+          "id": "curly",
+          "filterable": true
+        },
+        {
+          "id": "messy",
+          "filterable": true
+        },
+        {
+          "id": "ponytail",
+          "filterable": true
+        },
+        {
+          "id": "twintails",
+          "filterable": true
+        },
+        {
+          "id": "braid",
+          "filterable": true
+        },
+        {
+          "id": "bun",
+          "filterable": true
+        },
+        {
+          "id": "spiky",
+          "filterable": true
+        },
+        {
+          "id": "dreadlocks",
+          "filterable": true
+        },
+        {
+          "id": "undercut",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.hair.color",
+      "kind": "single",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Barva vlasů",
+      "values": [
+        {
+          "id": "blonde",
+          "filterable": true
+        },
+        {
+          "id": "brown",
+          "filterable": true
+        },
+        {
+          "id": "black",
+          "filterable": true
+        },
+        {
+          "id": "red",
+          "filterable": true
+        },
+        {
+          "id": "white_grey",
+          "filterable": true
+        },
+        {
+          "id": "blue",
+          "filterable": true
+        },
+        {
+          "id": "pink",
+          "filterable": true
+        },
+        {
+          "id": "purple",
+          "filterable": true
+        },
+        {
+          "id": "green",
+          "filterable": true
+        },
+        {
+          "id": "multicolor",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.eyes.color",
+      "kind": "single",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Barva očí",
+      "values": [
+        {
+          "id": "blue",
+          "filterable": true
+        },
+        {
+          "id": "brown",
+          "filterable": true
+        },
+        {
+          "id": "green",
+          "filterable": true
+        },
+        {
+          "id": "grey",
+          "filterable": true
+        },
+        {
+          "id": "black",
+          "filterable": true
+        },
+        {
+          "id": "red",
+          "filterable": true
+        },
+        {
+          "id": "yellow",
+          "filterable": true
+        },
+        {
+          "id": "purple",
+          "filterable": true
+        },
+        {
+          "id": "pink",
+          "filterable": true
+        },
+        {
+          "id": "heterochromia",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.body_type",
+      "kind": "single",
+      "when": "people",
+      "facet": true,
+      "humanRequired": true,
+      "labelCs": "Postava",
+      "values": [
+        {
+          "id": "slim",
+          "filterable": true
+        },
+        {
+          "id": "average",
+          "filterable": true
+        },
+        {
+          "id": "curvy",
+          "filterable": true
+        },
+        {
+          "id": "muscular",
+          "filterable": true
+        },
+        {
+          "id": "plump",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.clothing.coverage",
+      "kind": "ordinal",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Oblečení — zakrytí",
+      "values": [
+        {
+          "id": "full",
+          "filterable": true
+        },
+        {
+          "id": "revealing",
+          "filterable": true
+        },
+        {
+          "id": "swimwear_underwear",
+          "filterable": true
+        },
+        {
+          "id": "partial",
+          "filterable": true
+        },
+        {
+          "id": "none",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.clothing.type",
+      "kind": "multi",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Oblečení — typ",
+      "values": [
+        {
+          "id": "dress",
+          "filterable": true
+        },
+        {
+          "id": "shirt",
+          "filterable": true
+        },
+        {
+          "id": "jacket_coat",
+          "filterable": true
+        },
+        {
+          "id": "suit",
+          "filterable": true
+        },
+        {
+          "id": "uniform",
+          "filterable": true
+        },
+        {
+          "id": "armor",
+          "filterable": true
+        },
+        {
+          "id": "traditional",
+          "filterable": true
+        },
+        {
+          "id": "swimwear",
+          "filterable": true
+        },
+        {
+          "id": "hat",
+          "filterable": true
+        },
+        {
+          "id": "glasses",
+          "filterable": true
+        },
+        {
+          "id": "scarf",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "person.expression",
+      "kind": "single",
+      "when": "people",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Výraz",
+      "values": [
+        {
+          "id": "smiling",
+          "filterable": true
+        },
+        {
+          "id": "neutral",
+          "filterable": true
+        },
+        {
+          "id": "serious",
+          "filterable": true
+        },
+        {
+          "id": "sad",
+          "filterable": true
+        },
+        {
+          "id": "angry",
+          "filterable": true
+        },
+        {
+          "id": "surprised",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "style.medium",
+      "kind": "single",
+      "when": "",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Médium",
+      "values": [
+        {
+          "id": "photo",
+          "filterable": true
+        },
+        {
+          "id": "render_3d",
+          "filterable": true
+        },
+        {
+          "id": "painting",
+          "filterable": true
+        },
+        {
+          "id": "watercolor",
+          "filterable": true
+        },
+        {
+          "id": "sketch_lineart",
+          "filterable": true
+        },
+        {
+          "id": "flat",
+          "filterable": true
+        },
+        {
+          "id": "cel_shaded",
+          "filterable": true
+        },
+        {
+          "id": "comic",
+          "filterable": true
+        },
+        {
+          "id": "chibi",
+          "filterable": true
+        },
+        {
+          "id": "pixel",
+          "filterable": true
+        },
+        {
+          "id": "papercraft",
+          "filterable": true
+        },
+        {
+          "id": "clay",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "style.era",
+      "kind": "single",
+      "when": "",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Období / žánr",
+      "values": [
+        {
+          "id": "contemporary",
+          "filterable": true
+        },
+        {
+          "id": "retro",
+          "filterable": true
+        },
+        {
+          "id": "vintage",
+          "filterable": true
+        },
+        {
+          "id": "futuristic",
+          "filterable": true
+        },
+        {
+          "id": "fantasy",
+          "filterable": true
+        },
+        {
+          "id": "folk",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "style.palette",
+      "kind": "single",
+      "when": "",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Paleta",
+      "values": [
+        {
+          "id": "natural",
+          "filterable": true
+        },
+        {
+          "id": "muted",
+          "filterable": true
+        },
+        {
+          "id": "vibrant",
+          "filterable": true
+        },
+        {
+          "id": "pastel",
+          "filterable": true
+        },
+        {
+          "id": "neon",
+          "filterable": true
+        },
+        {
+          "id": "monochrome",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "style.lighting",
+      "kind": "single",
+      "when": "",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Světlo",
+      "values": [
+        {
+          "id": "daylight",
+          "filterable": true
+        },
+        {
+          "id": "golden",
+          "filterable": true
+        },
+        {
+          "id": "night",
+          "filterable": true
+        },
+        {
+          "id": "soft",
+          "filterable": true
+        },
+        {
+          "id": "backlit",
+          "filterable": true
+        },
+        {
+          "id": "dramatic",
+          "filterable": true
+        },
+        {
+          "id": "low_key",
+          "filterable": true
+        }
+      ]
+    },
+    {
+      "id": "style.camera",
+      "kind": "ordinal",
+      "when": "",
+      "facet": true,
+      "humanRequired": false,
+      "labelCs": "Záběr",
+      "values": [
+        {
+          "id": "closeup",
+          "filterable": true
+        },
+        {
+          "id": "portrait",
+          "filterable": true
+        },
+        {
+          "id": "upper_body",
+          "filterable": true
+        },
+        {
+          "id": "full_body",
+          "filterable": true
+        },
+        {
+          "id": "wide",
+          "filterable": true
+        }
+      ]
+    }
+  ]
+}

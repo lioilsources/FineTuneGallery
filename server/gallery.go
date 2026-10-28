@@ -38,6 +38,7 @@ type galleryItem struct {
 	CreatedAt    *string         `json:"createdAt"`
 	IsImg2img    bool            `json:"isImg2img"`
 	Origin       string          `json:"origin"`
+	Taxo         *taxoSummary    `json:"taxo,omitempty"` // only with FINETUNE_TAXONOMY=1
 }
 
 // galleryFilter builds the WHERE clause shared by the list endpoint and
@@ -190,6 +191,10 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 		conds = append(conds, "g.created_at <= ?")
 		args = append(args, v)
 	}
+	conds, args, bad = taxoFilter(get, conds, args)
+	if bad != "" {
+		return "", nil, bad
+	}
 	return strings.Join(conds, " AND "), args, ""
 }
 
@@ -316,7 +321,21 @@ func (s *server) decorateItems(items []*galleryItem) error {
 		byID[id].Caption[kind] = true
 	}
 	rows.Close()
+
+	if taxoEnabled {
+		for id, sm := range s.taxoSummaries(ids2strings(ids)) {
+			byID[id].Taxo = sm
+		}
+	}
 	return nil
+}
+
+func ids2strings(ids []any) []string {
+	out := make([]string, len(ids))
+	for i, v := range ids {
+		out[i] = v.(string)
+	}
+	return out
 }
 
 // GET /api/images/{id}

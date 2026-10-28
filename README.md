@@ -23,6 +23,8 @@ web/      Svelte 5 + Vite SPA (build → server/webdist)
 tagger/   WD14 (wd-swinv2-tagger-v3) FastAPI sidecar, CPU ONNX — běží na
           SPARKu (docker-compose.spark.yml), ne na NAS, viz níž
 train/    kohya trainer pro GPU box (Docker) + deploy do ComfyUI
+taxo/     taxonomie obsahu (taxonomy.yaml) + hodnotitelé WD14 / SigLIP 2 /
+          Qwen3-VL, teplota, konsenzus, multi-head hlava, conformal prahy
 ```
 
 ## Deploy (NAS + SPARK)
@@ -211,6 +213,113 @@ temperature 0, thinking off), gateway sdílí `LLM_GATEWAY_URL`. Žádný fallba
 3. NAS redeploy (migrace v5 proběhne sama), `judgebench -n 80` per kritérium
    (~240 requestů, odhad 15–30 min sdíleného qwen36) → výsledek sem.
 
+## Obsah: taxonomie, „teplota" a SFW brána
+
+Co obrázek ukazuje (námět, vlasy, oči, médium, paleta, záběr …) a jak je
+„horký" (spojitá **teplota 0–1** + pásma `safe / suggestive / nsfw /
+explicit`) — jako facety galerie, filtr a brána před sdílením. Za flagem
+`FINETUNE_TAXONOMY=1`; bez něj se galerie chová jako dřív (výjimka: blok
+nezletilých, níž).
+
+**Etika a rozsah.** Klasifikuje se **vygenerovaný obsah, ne lidé**.
+`skin_tone` (tón pleti, škála světlá → tmavá po vzoru Monk/Fitzpatrick, ne
+etnické kategorie — klasifikátor vidí barvu, ne původ) a `age_group` jsou
+vizuální atributy vyrenderovaného obrázku pro filtrování a vyhledávání, ne
+identita. Kategorie `child` (a přísněji i `teen`) existuje **jen jako blok**,
+nikdy jako filtr nebo facet — server ji jako filtr odmítne i z URL. **Žádný
+atribut taxonomie se nepoužívá k rankování kvality** (Eval s ní nepočítá).
+
+**Jediný zdroj pravdy: `taxo/taxonomy.yaml`** (verzovaná). Každý uzel má
+povolené hodnoty, mapování na WD14 tagy, textové hypotézy pro SigLIP, otázku
+pro VLM a `human_required`. `python taxo/gen_schema.py` z ní vyrobí
+`server/taxonomy.json` (embed do serveru) a `taxo/schema/vlm_extract.schema.json`
+(guided JSON pro Qwen3-VL); `--wd14-csv selected_tags.csv` ověří, že každý
+mapovaný tag existuje ve slovníku taggeru. Go test hlídá, že JSON odpovídá
+YAML (sha256), Python test totéž přes `--check`.
+
+**Tři hodnotitelé, jeden formát** (`taxo/`, běží na GPU boxu, ne na NAS):
+
+| hodnotitel | co | cena |
+|---|---|---|
+| `eval_wd14.py` | WD14 tagy → uzly (deterministické mapování z YAML) + WD14 teplota | zdarma, tagy už jsou v `captions.tags_json` |
+| `eval_siglip.py` | SigLIP 2 (`google/siglip2-so400m-patch16-512`) zero-shot per uzel + embedding | nová hodnota v YAML = hned, bez tréninku |
+| `eval_vlm.py` | Qwen3-VL-8B (vLLM, `response_format: json_schema` ze schématu) | nejdražší, umí „rozcuchané" a „cel-shaded vs flat" |
+
+Teplota = WD14 rating (pravděpodobnostně vážený průměr úrovní
+general/sensitive/questionable/explicit) v ensemblu s
+`Falconsai/nsfw_image_detection` a `AdamCodd/vit-base-nsfw-detector`
+(`eval_nsfw.py`). Neshoda (rozptyl > 0.40, nebo jeden „safe" a jiný ≥ nsfw)
+= `unsure` → fronta pro člověka. `combine.py` spojí odpovědi: **shoda = jistota**
+(≥ 2 hodnotitelé stejně; u ordinálních uzlů stačí sousední hodnota), jinak
+`unsure`; jediný zdroj není shoda. `push.py` to nahraje přes
+`POST /api/taxonomy/import`.
+
+**Blok nezletilých — bez výjimky a bez flagu.** `child`/`teen` od
+*kteréhokoli* hodnotitele (conf ≥ 0.30), WD14 tag `child`/`loli`/`aged down`/…
+nebo lidský label + cokoli jiného než jisté `safe` (pásmo ≠ safe nebo unsure)
+= `block`: obrázek zmizí z gallery view (tedy ze seznamu, Evalu, datasetů,
+podobných), blob vrací 451, záznam v `taxonomy_audit`. Když hodnotil zatím jen
+WD14 z captionu, je to `quarantine` (taky skryté), kterou uvolní jen ensemble
+s jistým `safe`; `block` se neuvolní nikdy (ani lidským „safe"). Blok kontroluje
+captioner po každém WD14 captionu, import, lidský label, změna prahů a
+startovní sweep. Pravidlo je čistá funkce `minorDecision` testovaná na
+syntetických vektorech labelů (`taxo/testdata/minor_vectors.json`, sdílené s
+Python testy) — žádné obrázky.
+
+**Prahy s garancí** (`taxo/conformal.py`): `explicit` recall ≥ 0.99 přes
+split-conformal „guard" (PAC varianta: s pravděpodobností 95 % nad
+kalibračním vzorkem; potřebuje ≥ 299 lidských `explicit`) — vše nad guardem,
+co body neoznačí jako explicit, jde do `unsure` (raději false positive do
+fronty); `safe` precision ≥ 0.98 na Wilsonově dolní mezi (stejné pravidlo
+jako Eval). `PUT /api/taxonomy/thresholds` přepočítá pásma, znovu aplikuje
+blok a změnu zapíše do auditu. **Dokud nejsou lidské labely, platí ruční
+defaulty z YAML** (pseudo-label fit slouží jen k testu nástroje).
+
+**Lidské labely a κ.** `finetune-gallery taxobench -sample 300 -borderline 60`
+vylosuje (seed) stratifikovaný vzorek podle model × styl + 60 hraničních
+(rating unsure nebo ±0.05 od prahu) do `taxonomy_label_queue`. Filtr „label
+queue" + panel Obsah v detailu; obrázek ze vzorku se ukazuje **naslepo**
+(odpovědi hodnotitelů až po labelu, jako u soudce). `finetune-gallery
+taxobench` pak vypíše κ per hodnotitel per uzel se **stejnou gate jako
+soudce** (`kappa.go`: n ≥ 40, menšinová třída ≥ 8, κ ≥ 0.60, dolní mez ≥
+0.40); u multi-label uzlů κ per hodnota. Hraniční stratum se reportuje zvlášť
+(`-stratum random|borderline|all`). Efektivní label = člověk > konsenzus; u
+`human_required` uzlů (věk, tón pleti, postava) jen člověk.
+
+**Vlastní hlava** (`taxo/head.py`): jedna multi-head síť nad zmrazeným
+SigLIP 2 embeddingem (uzel = hlava, teplota = regrese), trénovaná na
+konsenzu (≥ 2 shodní) + lidských labelech, export ONNX. Embedding se ukládá
+do `image_embeddings` (float32 BLOB; modernc/sqlite neumí načíst sqlite-vec,
+20k × 1152 se prohledá hrubou silou v Go za milisekundy) → `GET
+/api/images/{id}/similar`.
+
+**Sdílené a veřejné pohledy.** `view=shared` = jen `safe` a ne `unsure`
+(neohodnocené taky ne). `FINETUNE_PUBLIC_VIEW=1` to vynutí pro všechny
+seznamy i bloby (instance pro StyleMap packy, merch, market) a bez taxonomie
+odmítne nastartovat. Kohya export: `PUT /api/datasets/{id} {"tempMax":0.3}`
+vyřadí nad prahem / unsure / neohodnocené; README datasetu nese limit, max
+teplotu a počty vyřazených.
+
+```
+python taxo/eval_wd14.py   --gallery-data /data --out wd14.jsonl   --device cuda
+python taxo/eval_nsfw.py   --gallery-data /data --out nsfw.jsonl   --device cuda
+python taxo/eval_siglip.py --gallery-data /data --out siglip.jsonl --emb-out emb.npz --device cuda
+python taxo/eval_vlm.py    --gallery-data /data --out vlm.jsonl --base-url http://gpu:8004/v1 --model qwen3-vl-8b
+python taxo/combine.py --wd14 wd14.jsonl --nsfw nsfw.jsonl --siglip siglip.jsonl --vlm vlm.jsonl \
+                       --out combined.jsonl --stats stats.json
+python taxo/push.py --server http://finetune:8092 --combined combined.jsonl --emb emb.npz
+python taxo/head.py train --emb emb.npz --labels combined.jsonl --out head/
+python taxo/conformal.py fit --scores combined.jsonl --labels human.jsonl --out bands.json
+python -m unittest discover -s taxo/tests
+```
+
+**Prompt lint pro Ol1nLLM (návrh, neimplementováno):** před generací
+předpovědět očekávanou teplotu z promptu (malý textový klasifikátor nad
+dvojicemi prompt → naměřená teplota z této galerie) → varování/blok podle
+režimu appky; po generaci skutečná teplota z galerie — neshoda = model
+„ujíždí". Per checkpoint statistika (kolik % promptů bez explicitního záměru
+skončí nad 0.5) patří do Evalu jako argument pro výběr modelu.
+
 ## Picker modelů: sloučený, ne opsaný
 
 Model je jediný strukturální filtr galerie, takže model, který v pickeru
@@ -325,6 +434,14 @@ GET  /api/eval?group=model|style|lora|pose|session&min=10[&format=csv]
 POST /api/images/{id}/judge?criterion=     verdikt VL soudce (502 bez fallbacku)
 POST /api/judge/sweep?criterion=&n=        fronta neposouzených
 GET  /api/judge                            gate tabule: κ, pokrytí, prahy
+GET  /api/images?taxo=person.hair.color:blonde&temp_max=0.3&view=shared
+                &band=&rating_unsure=&taxo_unsure=<uzel>&label_queue=1&taxo_src=
+POST /api/taxonomy/import                  výstup taxo/combine.py (FINETUNE_TAXONOMY=1)
+GET|PUT /api/images/{id}/taxonomy          odpovědi hodnotitelů / lidské labely
+GET  /api/images/{id}/similar              kosinus nad SigLIP embeddingy
+GET|PUT /api/taxonomy/thresholds           pásma teploty (PUT = audit + přepočet)
+GET  /api/taxonomy/kappa?stratum=          κ per hodnotitel per uzel
+GET  /api/taxonomy/audit                   bloky, uvolnění, změny prahů
 ```
 
 ## Vývoj

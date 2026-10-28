@@ -25,6 +25,11 @@
     {#if item.aspects && item.aspects.length}<span class="badge b-aspect">{item.aspects.length}</span>{/if}
     {#if item.isImg2img}<span class="badge b-flag">i2i</span>{/if}
     {#if item.origin === 'upload'}<span class="badge b-flag">up</span>{/if}
+    {#if item.taxo && (item.taxo.band !== 'safe' || item.taxo.unsure)}
+      <span class="badge b-temp b-{item.taxo.band}" title="teplota {item.taxo.temperature}{item.taxo.unsure ? ' · unsure' : ''}"
+        >{item.taxo.band === 'safe' ? '' : item.taxo.band[0].toUpperCase()}{item.taxo.unsure ? '?' : ''}</span
+      >
+    {/if}
     {#if item.poseId}<span class="badge b-pose"><img src="/poses/{item.poseId}.png" alt="pose {item.poseId}" /></span>{/if}
   </div>
 </div>

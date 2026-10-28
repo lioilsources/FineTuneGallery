@@ -164,6 +164,11 @@ func (c *Captioner) caption(imageID string) error {
 		return fmt.Errorf("store caption: %w", err)
 	}
 	log.Printf("captioner: %s ← %d tags", imageID, len(tags.General)+len(tags.Character))
+	// The minor rule reads the WD14 tags and rating straight from this
+	// caption, so it runs here — flag or no flag.
+	if _, err := recheckMinor(c.db, imageID); err != nil {
+		log.Printf("captioner: minor check %s: %v", imageID, err)
+	}
 	return nil
 }
 

@@ -43,8 +43,45 @@
       f.pose !== '' ||
       f.uncaptioned ||
       f.criterion !== '' ||
-      f.judge !== ''
+      f.judge !== '' ||
+      f.taxo !== '' ||
+      f.tempMax < 1 ||
+      f.shared ||
+      f.ratingUnsure ||
+      f.labelQueue
   );
+
+  /* ---------------- content taxonomy ---------------- */
+
+  const taxo = $derived($meta.taxonomy || { enabled: false });
+  const taxoPairs = $derived(f.taxo ? f.taxo.split(',') : []);
+
+  function bandFor(t) {
+    const th = taxo.thresholds;
+    if (!th) return '';
+    if (t <= th.safe_max) return 'safe';
+    if (t <= th.suggestive_max) return 'suggestive';
+    if (t <= th.nsfw_max) return 'nsfw';
+    return 'explicit';
+  }
+
+  function addTaxo(pair) {
+    if (!pair || taxoPairs.includes(pair)) return;
+    // one value per single-valued node: picking brown replaces blonde
+    const node = pair.split(':')[0];
+    const facet = (taxo.facets || []).find((x) => x.id === node);
+    const keep = facet && facet.kind === 'multi' ? taxoPairs : taxoPairs.filter((p) => !p.startsWith(node + ':'));
+    setF({ taxo: [...keep, pair].join(',') });
+  }
+
+  function dropTaxo(pair) {
+    setF({ taxo: taxoPairs.filter((p) => p !== pair).join(',') });
+  }
+
+  function facetLabel(id) {
+    const fc = (taxo.facets || []).find((x) => x.id === id);
+    return fc && fc.labelCs ? fc.labelCs : id;
+  }
 
   const summary = $derived.by(() => {
     const parts = [];
@@ -72,6 +109,11 @@
       parts.push(
         f.judge.replace(':disagree', ' — judge disagrees').replace(':unrated', ' — judged, not rated by you')
       );
+    if (f.shared) parts.push('shared view (safe only)');
+    if (f.tempMax < 1) parts.push(`teplota ≤ ${f.tempMax.toFixed(2)}`);
+    for (const pr of f.taxo ? f.taxo.split(',') : []) parts.push(pr.replace(':', ' = '));
+    if (f.ratingUnsure) parts.push('rating unsure');
+    if (f.labelQueue) parts.push('label queue');
     return parts.join(' · ');
   });
 
@@ -210,6 +252,79 @@
       <button class="chip ghost" title="New aspect" onclick={() => (addingAspect = true)}>+</button>
     {/if}
   </div>
+
+  <!-- Content taxonomy: hidden unless the server runs with FINETUNE_TAXONOMY=1.
+       Minor age groups are not in the facets (the server refuses them too). -->
+  {#if taxo.enabled}
+    <div class="filter-row">
+      <span class="lbl">obsah</span>
+      <label class="temp" title="Teplota obsahu 0–1 (WD14 + 2 NSFW klasifikátory). 1 = bez limitu.">
+        teplota ≤
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={f.tempMax}
+          disabled={taxo.publicView}
+          onchange={(e) => setF({ tempMax: Number(e.currentTarget.value) })}
+          onkeydown={(e) => e.stopPropagation()}
+        />
+        <span class="temp-val">{f.tempMax < 1 ? `${f.tempMax.toFixed(2)} · ${bandFor(f.tempMax)}` : 'vše'}</span>
+      </label>
+      <button
+        class="chip"
+        class:active={f.shared || taxo.publicView}
+        disabled={taxo.publicView}
+        title="Jako sdílený / veřejný pohled: jen safe a jisté"
+        onclick={(e) => {
+          setF({ shared: !f.shared });
+          e.currentTarget.blur();
+        }}>shared</button
+      >
+      <select
+        class="sel"
+        value=""
+        onchange={(e) => {
+          addTaxo(e.currentTarget.value);
+          e.currentTarget.value = '';
+        }}
+        title="Facety taxonomie"
+      >
+        <option value="">+ facet…</option>
+        {#each taxo.facets || [] as fc (fc.id)}
+          <optgroup label={fc.labelCs || fc.id}>
+            {#each fc.values as v (v.id)}
+              <option value="{fc.id}:{v.id}">{v.id} ({v.count}){fc.humanRequired ? ' · ručně' : ''}</option>
+            {/each}
+          </optgroup>
+        {/each}
+      </select>
+      {#each taxoPairs as pr (pr)}
+        <button class="chip active" title="odebrat" onclick={() => dropTaxo(pr)}
+          >{facetLabel(pr.split(':')[0])}: {pr.split(':')[1]} ×</button
+        >
+      {/each}
+      <button
+        class="chip"
+        class:active={f.ratingUnsure}
+        title="Hodnotitelé teploty se neshodli — fronta pro člověka"
+        onclick={(e) => {
+          setF({ ratingUnsure: !f.ratingUnsure });
+          e.currentTarget.blur();
+        }}>unsure ({taxo.unsure || 0})</button
+      >
+      <button
+        class="chip"
+        class:active={f.labelQueue}
+        title="Vzorek k ručnímu olabelování (naslepo — odpovědi hodnotitelů se ukážou až po labelu)"
+        onclick={(e) => {
+          setF({ labelQueue: !f.labelQueue });
+          e.currentTarget.blur();
+        }}>label queue</button
+      >
+    </div>
+  {/if}
 
   <div class="filter-row summary-row">
     <span>{$galleryState.items.length} loaded{$galleryState.nextCursor ? '+' : ''}</span>

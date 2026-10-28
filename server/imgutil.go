@@ -25,8 +25,11 @@ func (s *server) handleImg(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid sha256")
 		return
 	}
+	if !s.blobVisible(w, sha) {
+		return
+	}
 	w.Header().Set("Content-Type", "image/png")
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", s.blobCacheControl())
 	if r.URL.Query().Get("download") != "" {
 		name := downloadName(r.URL.Query().Get("name"), sha)
 		w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
@@ -69,6 +72,9 @@ func (s *server) handleThumb(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid sha256")
 		return
 	}
+	if !s.blobVisible(w, sha) {
+		return
+	}
 	thumbPath := s.thumbPath(sha)
 	if _, err := os.Stat(thumbPath); err != nil {
 		if err := makeThumb(s.blobPath(sha), thumbPath); err != nil {
@@ -79,8 +85,35 @@ func (s *server) handleThumb(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "image/jpeg")
-	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	w.Header().Set("Cache-Control", s.blobCacheControl())
 	http.ServeFile(w, r, thumbPath)
+}
+
+// blobVisible applies the minor block (always) and the public view (safe
+// only) to blob serving: the gallery view hides a blocked image from every
+// list, this keeps its URL from working either.
+func (s *server) blobVisible(w http.ResponseWriter, sha string) bool {
+	if blobBlocked(s.db, sha) {
+		w.Header().Set("Cache-Control", "no-store")
+		writeErr(w, http.StatusUnavailableForLegalReasons, "blocked by content policy")
+		return false
+	}
+	if taxoPublicView && !blobSharedSafe(s.db, sha) {
+		w.Header().Set("Cache-Control", "no-store")
+		writeErr(w, http.StatusNotFound, "not available in the shared view")
+		return false
+	}
+	return true
+}
+
+// blobCacheControl: content-addressed blobs never change, but their
+// visibility can (a later block, a moved threshold) — so the year-long
+// immutable cache is only for the private gallery.
+func (s *server) blobCacheControl() string {
+	if taxoPublicView {
+		return "public, max-age=3600"
+	}
+	return "public, max-age=31536000, immutable"
 }
 
 func makeThumb(srcPath, dstPath string) error {

@@ -1,0 +1,345 @@
+# FineTuneGallery content taxonomy — the single source of truth.
+#
+# Everything that classifies, filters or trains on image content reads this
+# file (through the generated server/taxonomy.json and the guided-JSON schema):
+# the WD14 mapping, the SigLIP 2 zero-shot hypotheses, the Qwen3-VL extraction
+# schema, the multi-head classifier, /api/meta facets and the gallery filter.
+# A new value here is a new value everywhere after `python taxo/gen_schema.py`.
+#
+# Bump `version` whenever a node or value changes meaning: evaluator rows are
+# stored with the version that produced them, so labels from an older
+# vocabulary are never compared with a newer one (same rule as judge@version).
+#
+# What is classified is GENERATED CONTENT, not people. skin_tone and age_group
+# are visual attributes of a rendered image for filtering; `child` and `teen`
+# exist only as a block (see minor_block), never as a searchable filter; no
+# attribute is ever used to rank quality.
+
+version: 1
+
+# --- rating / "temperature" ------------------------------------------------
+# A continuous 0–1 temperature plus four bands. Thresholds below are the
+# hand-set defaults; conformal fitting (taxo/conformal.py) replaces them once
+# human labels exist, and every change is written to the audit log.
+rating:
+  bands: [safe, suggestive, nsfw, explicit]
+  default_thresholds: {safe_max: 0.20, suggestive_max: 0.45, nsfw_max: 0.70}
+  # WD14 rating tags → temperature level; the WD14 temperature is the
+  # probability-weighted mean of these (rating probs renormalised to sum 1).
+  wd14_levels: {general: 0.0, sensitive: 0.333, questionable: 0.667, explicit: 1.0}
+  ensemble:
+    # p(nsfw) from the two binary classifiers, WD14 as above.
+    weights: {wd14: 0.5, falconsai: 0.25, adamcodd: 0.25}
+    # Disagreement → unsure (human queue): spread of the three temperatures
+    # above this, or one rater calling it safe while another calls it ≥ nsfw.
+    disagree_delta: 0.40
+  conformal:
+    explicit_recall: 0.99   # guaranteed lower bound on recall of `explicit`
+    safe_precision: 0.98    # Wilson lower bound on precision of `safe`
+
+# --- minors ----------------------------------------------------------------
+# child (and, stricter than the plan, teen) + anything other than a confident
+# `safe` = hard block + audit row. No exception, no override, no filter.
+# A signal from ANY evaluator counts (not only the consensus): a block is the
+# one decision where one voice is enough.
+minor_block:
+  values: [child, teen]
+  min_conf: 0.30
+  # WD14 tags that are a minor signal on their own (spaces or underscores).
+  wd14_signals: [child, loli, shota, aged_down, baby, kindergarten_uniform, child_on_child]
+
+# --- nodes -----------------------------------------------------------------
+# kind: single (one value) | multi (any subset) | ordinal (single, ordered —
+#   adjacent values count as agreement for the consensus)
+# when: evaluated only if the image's own subject includes `people`
+# facet: shown in /api/meta and filterable in the gallery
+# human_required: a value is only "settled" with a human label (never
+#   auto-published as a confident facet from evaluators alone)
+# min_conf: per-evaluator confidence below which the evaluator abstains
+# values.<v>.wd14: WD14 general tags that imply the value
+# values.<v>.siglip: zero-shot hypotheses (default: the node template)
+# values.<v>.filterable: false = never a filter or facet (minor values)
+nodes:
+  - id: subject
+    kind: multi
+    facet: true
+    human_required: false
+    label_cs: Námět
+    vlm: "Which of these are clearly depicted as a main subject? (several allowed)"
+    siglip_template: "a picture of {}"
+    values:
+      people:      {wd14: [1girl, 1boy, 2girls, 2boys, 3girls, multiple_girls, multiple_boys, 6+girls, crowd], siglip: ["a picture of a person", "a picture of people"]}
+      animals:     {wd14: [animal, cat, dog, bird, horse, fish, dragon, animal_focus, pokemon_(creature)], siglip: ["a picture of an animal"]}
+      environment: {wd14: [scenery, landscape, cityscape, building, city, mountain, forest, ocean, beach], siglip: ["a picture of a landscape or a place", "a picture of scenery"]}
+      objects:     {wd14: [still_life, food, fruit, flower, car, motor_vehicle, robot, mecha, weapon], siglip: ["a picture of an object", "a still life of things"]}
+      abstract:    {wd14: [abstract], siglip: ["an abstract picture", "an abstract pattern"]}
+    wd14_negative: {people: [no_humans]}
+
+  - id: person.age_group
+    kind: ordinal
+    when: people
+    facet: true
+    human_required: true
+    label_cs: Věková skupina (vizuálně)
+    vlm: "Apparent age group of the main person as drawn/rendered."
+    siglip_template: "a picture of {}"
+    values:
+      child:       {wd14: [child, loli, shota, aged_down, baby, kindergarten_uniform], siglip: ["a picture of a child", "a picture of a little kid"], filterable: false}
+      teen:        {siglip: ["a picture of a teenager"], filterable: false}
+      young_adult: {siglip: ["a picture of a young adult in their twenties"]}
+      adult:       {wd14: [mature_female, mature_male], siglip: ["a picture of a middle-aged adult"]}
+      elderly:     {wd14: [old, old_man, old_woman, wrinkled_skin], siglip: ["a picture of an elderly person"]}
+
+  - id: person.gender_presentation
+    kind: multi
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Prezentace pohlaví
+    vlm: "Gender presentation of the depicted people as drawn (several if a group)."
+    siglip_template: "a picture of {}"
+    values:
+      feminine:    {wd14: [1girl, 2girls, 3girls, multiple_girls, 6+girls], siglip: ["a woman", "a girl or woman, feminine"]}
+      masculine:   {wd14: [1boy, 2boys, multiple_boys], siglip: ["a man", "a boy or man, masculine"]}
+      androgynous: {wd14: [androgynous], siglip: ["an androgynous person"]}
+
+  - id: person.skin_tone
+    kind: ordinal
+    when: people
+    facet: true
+    human_required: true
+    label_cs: Tón pleti
+    # A light→dark scale after Monk / Fitzpatrick, collapsed to five steps.
+    # Not ethnicity: the classifier sees a rendered colour, not an origin.
+    vlm: "Rendered skin tone of the main person on a light-to-dark scale (colour only, not ethnicity)."
+    siglip_template: "a person with {} skin"
+    values:
+      light:        {wd14: [pale_skin], siglip: ["a person with very light pale skin"]}
+      medium_light: {siglip: ["a person with light skin"]}
+      medium:       {wd14: [tan], siglip: ["a person with medium tan skin"]}
+      medium_dark:  {wd14: [dark_skin, dark-skinned_female, dark-skinned_male], siglip: ["a person with brown skin"]}
+      dark:         {wd14: [very_dark_skin], siglip: ["a person with very dark skin"]}
+
+  - id: person.hair.length
+    kind: ordinal
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Délka vlasů
+    vlm: "Hair length of the main person."
+    siglip_template: "a person with {}"
+    values:
+      bald:      {wd14: [bald], siglip: ["a bald person"]}
+      short:     {wd14: [short_hair, very_short_hair, bob_cut], siglip: ["a person with short hair"]}
+      medium:    {wd14: [medium_hair], siglip: ["a person with shoulder-length hair"]}
+      long:      {wd14: [long_hair], siglip: ["a person with long hair"]}
+      very_long: {wd14: [very_long_hair, absurdly_long_hair], siglip: ["a person with very long hair"]}
+
+  - id: person.hair.style
+    kind: multi
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Účes
+    vlm: "Hair style(s) of the main person."
+    siglip_template: "a person with {} hair"
+    values:
+      straight:   {wd14: [straight_hair], siglip: ["a person with straight hair"]}
+      wavy:       {wd14: [wavy_hair], siglip: ["a person with wavy hair"]}
+      curly:      {wd14: [curly_hair, afro], siglip: ["a person with curly hair"]}
+      messy:      {wd14: [messy_hair], siglip: ["a person with messy tousled hair"]}
+      ponytail:   {wd14: [ponytail, side_ponytail, high_ponytail, low_ponytail], siglip: ["a person with a ponytail"]}
+      twintails:  {wd14: [twintails, short_twintails], siglip: ["a person with twin tails pigtails"]}
+      braid:      {wd14: [braid, braided_ponytail], siglip: ["a person with braided hair"]}
+      bun:        {wd14: [hair_bun, double_bun, single_hair_bun], siglip: ["a person with a hair bun"]}
+      spiky:      {wd14: [spiked_hair], siglip: ["a person with spiky hair"]}
+      dreadlocks: {wd14: [dreadlocks], siglip: ["a person with dreadlocks"]}
+      undercut:   {wd14: [undercut], siglip: ["a person with an undercut haircut"]}
+
+  - id: person.hair.color
+    kind: single
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Barva vlasů
+    vlm: "Dominant hair colour of the main person."
+    siglip_template: "a person with {} hair"
+    values:
+      blonde:     {wd14: [blonde_hair], siglip: ["a person with blonde hair"]}
+      brown:      {wd14: [brown_hair, light_brown_hair], siglip: ["a person with brown hair"]}
+      black:      {wd14: [black_hair], siglip: ["a person with black hair"]}
+      red:        {wd14: [red_hair, orange_hair], siglip: ["a person with red or ginger hair"]}
+      white_grey: {wd14: [white_hair, grey_hair], siglip: ["a person with white or grey hair"]}
+      blue:       {wd14: [blue_hair, light_blue_hair, dark_blue_hair], siglip: ["a person with blue hair"]}
+      pink:       {wd14: [pink_hair], siglip: ["a person with pink hair"]}
+      purple:     {wd14: [purple_hair], siglip: ["a person with purple hair"]}
+      green:      {wd14: [green_hair], siglip: ["a person with green hair"]}
+      multicolor: {wd14: [multicolored_hair, gradient_hair], siglip: ["a person with multicoloured hair"]}
+
+  - id: person.eyes.color
+    kind: single
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Barva očí
+    vlm: "Eye colour of the main person, unknown if not visible."
+    siglip_template: "a close-up of {} eyes"
+    values:
+      blue:         {wd14: [blue_eyes]}
+      brown:        {wd14: [brown_eyes]}
+      green:        {wd14: [green_eyes]}
+      grey:         {wd14: [grey_eyes]}
+      black:        {wd14: [black_eyes]}
+      red:          {wd14: [red_eyes]}
+      yellow:       {wd14: [yellow_eyes]}
+      purple:       {wd14: [purple_eyes]}
+      pink:         {wd14: [pink_eyes]}
+      heterochromia: {wd14: [heterochromia], siglip: ["a person with two different coloured eyes"]}
+
+  - id: person.body_type
+    kind: single
+    when: people
+    facet: true
+    human_required: true
+    label_cs: Postava
+    vlm: "Body type of the main person as drawn, unknown if the body is not visible."
+    siglip_template: "a {} person"
+    values:
+      slim:     {wd14: [skinny], siglip: ["a slim person"]}
+      average:  {siglip: ["a person of average build"]}
+      curvy:    {wd14: [curvy, thick_thighs], siglip: ["a curvy person"]}
+      muscular: {wd14: [muscular], siglip: ["a muscular person"]}
+      plump:    {wd14: [plump, fat], siglip: ["a plump person"]}
+
+  - id: person.clothing.coverage
+    kind: ordinal
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Oblečení — zakrytí
+    vlm: "How covered the main person is."
+    siglip_template: "a person {}"
+    values:
+      full:     {wd14: [dress, shirt, jacket, coat, suit, kimono, armor, school_uniform, hood], siglip: ["a fully clothed person"]}
+      revealing: {wd14: [cleavage, see-through], siglip: ["a person in revealing clothes"]}
+      swimwear_underwear: {wd14: [swimsuit, one-piece_swimsuit, bikini, underwear, lingerie, bra, panties], siglip: ["a person in swimwear or underwear"]}
+      partial:  {wd14: [topless, bottomless, naked_shirt], siglip: ["a partially undressed person"]}
+      none:     {wd14: [nude, completely_nude], siglip: ["a nude person"]}
+
+  - id: person.clothing.type
+    kind: multi
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Oblečení — typ
+    vlm: "Visible clothing items / accessories."
+    siglip_template: "a person wearing {}"
+    values:
+      dress:       {wd14: [dress], siglip: ["a person wearing a dress"]}
+      shirt:       {wd14: [shirt, t-shirt], siglip: ["a person wearing a shirt"]}
+      jacket_coat: {wd14: [jacket, coat], siglip: ["a person wearing a jacket or coat"]}
+      suit:        {wd14: [suit], siglip: ["a person wearing a suit"]}
+      uniform:     {wd14: [school_uniform, serafuku], siglip: ["a person wearing a uniform"]}
+      armor:       {wd14: [armor], siglip: ["a person wearing armor"]}
+      traditional: {wd14: [kimono], siglip: ["a person wearing traditional clothing"]}
+      swimwear:    {wd14: [swimsuit, one-piece_swimsuit, bikini], siglip: ["a person wearing swimwear"]}
+      hat:         {wd14: [hat, hood], siglip: ["a person wearing a hat"]}
+      glasses:     {wd14: [glasses, sunglasses], siglip: ["a person wearing glasses"]}
+      scarf:       {wd14: [scarf], siglip: ["a person wearing a scarf"]}
+
+  - id: person.expression
+    kind: single
+    when: people
+    facet: true
+    human_required: false
+    label_cs: Výraz
+    vlm: "Facial expression of the main person, unknown if the face is not visible."
+    siglip_template: "a person {}"
+    values:
+      smiling:   {wd14: [smile, laughing, grin], siglip: ["a smiling person"]}
+      neutral:   {wd14: [expressionless], siglip: ["a person with a neutral expression"]}
+      serious:   {wd14: [serious, frown], siglip: ["a serious person"]}
+      sad:       {wd14: [sad, crying], siglip: ["a sad person"]}
+      angry:     {wd14: [angry], siglip: ["an angry person"]}
+      surprised: {wd14: [surprised, scared], siglip: ["a surprised person"]}
+
+  - id: style.medium
+    kind: single
+    facet: true
+    human_required: false
+    label_cs: Médium
+    vlm: "Rendering medium. flat = flat colours without shading; cel_shaded = anime cel shading with hard shadow edges."
+    siglip_template: "{}"
+    values:
+      photo:          {wd14: [photorealistic, realistic], siglip: ["a photograph", "a realistic photo"]}
+      render_3d:      {siglip: ["a 3D render", "a CGI 3D rendering"]}
+      painting:       {wd14: [painting_(medium), acrylic_paint_(medium), painterly, traditional_media], siglip: ["a painting", "an oil painting"]}
+      watercolor:     {wd14: [watercolor_(medium)], siglip: ["a watercolor painting"]}
+      sketch_lineart: {wd14: [sketch, lineart, graphite_(medium), ink_(medium)], siglip: ["a pencil sketch", "black and white line art"]}
+      flat:           {wd14: [flat_color], siglip: ["a flat vector illustration", "flat colour illustration without shading"]}
+      cel_shaded:     {wd14: [anime_coloring], siglip: ["an anime cel-shaded illustration"]}
+      comic:          {wd14: [comic, 4koma, western_comics_(style)], siglip: ["a comic book page", "a comic illustration"]}
+      chibi:          {wd14: [chibi], siglip: ["a chibi illustration"]}
+      pixel:          {siglip: ["pixel art"]}
+      papercraft:     {siglip: ["a paper cut-out collage illustration"]}
+      clay:           {siglip: ["a claymation clay figure"]}
+
+  - id: style.era
+    kind: single
+    facet: true
+    human_required: false
+    label_cs: Období / žánr
+    vlm: "Era or genre the picture evokes."
+    siglip_template: "a {} picture"
+    values:
+      contemporary: {siglip: ["a contemporary modern-day picture"]}
+      retro:        {wd14: [retro_artstyle, 1980s_(style), 1990s_(style)], siglip: ["a retro 1980s or 1990s style picture"]}
+      vintage:      {wd14: [1970s_(style)], siglip: ["a vintage early twentieth century picture"]}
+      futuristic:   {wd14: [science_fiction, cyberpunk], siglip: ["a futuristic science fiction picture"]}
+      fantasy:      {wd14: [fantasy], siglip: ["a medieval fantasy picture"]}
+      folk:         {siglip: ["a folk-art picture", "a traditional woodcut"]}
+
+  - id: style.palette
+    kind: single
+    facet: true
+    human_required: false
+    label_cs: Paleta
+    vlm: "Overall colour palette."
+    siglip_template: "a picture with a {} colour palette"
+    values:
+      natural:    {siglip: ["a picture with natural colours"]}
+      muted:      {wd14: [muted_color], siglip: ["a picture with muted desaturated colours"]}
+      vibrant:    {wd14: [colorful, high_contrast], siglip: ["a picture with vibrant saturated colours"]}
+      pastel:     {wd14: [pastel_colors], siglip: ["a picture with soft pastel colours"]}
+      neon:       {wd14: [neon_lights, neon_trim], siglip: ["a picture with glowing neon colours"]}
+      monochrome: {wd14: [monochrome, greyscale, sepia], siglip: ["a black and white monochrome picture"]}
+
+  - id: style.lighting
+    kind: single
+    facet: true
+    human_required: false
+    label_cs: Světlo
+    vlm: "Dominant lighting."
+    siglip_template: "a picture with {}"
+    values:
+      daylight: {wd14: [sunlight, dappled_sunlight], siglip: ["a picture in bright daylight"]}
+      golden:   {wd14: [sunset, evening, twilight], siglip: ["a picture at sunset with golden light"]}
+      night:    {wd14: [night, night_sky, moonlight], siglip: ["a picture at night"]}
+      soft:     {siglip: ["a picture with soft diffuse studio light"]}
+      backlit:  {wd14: [backlighting], siglip: ["a backlit picture with rim light"]}
+      dramatic: {wd14: [spotlight, stage_lights, sidelighting], siglip: ["a picture with dramatic high-contrast lighting"]}
+      low_key:  {wd14: [dark, darkness], siglip: ["a dark low-key picture"]}
+
+  - id: style.camera
+    kind: ordinal
+    facet: true
+    human_required: false
+    label_cs: Záběr
+    vlm: "Framing / shot size."
+    siglip_template: "{}"
+    values:
+      closeup:    {wd14: [close-up], siglip: ["an extreme close-up shot"]}
+      portrait:   {wd14: [portrait], siglip: ["a head and shoulders portrait"]}
+      upper_body: {wd14: [upper_body, cowboy_shot], siglip: ["an upper body shot"]}
+      full_body:  {wd14: [full_body], siglip: ["a full body shot"]}
+      wide:       {wd14: [wide_shot, very_wide_shot, scenery], siglip: ["a wide establishing shot"]}

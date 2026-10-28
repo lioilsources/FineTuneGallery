@@ -16,22 +16,23 @@ import (
 var datasetNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,63}$`)
 
 type datasetRow struct {
-	ID          int64   `json:"id"`
-	Name        string  `json:"name"`
-	AspectID    *int64  `json:"aspectId"`
-	BaseModel   string  `json:"baseModel"`
-	TriggerWord string  `json:"triggerWord"`
-	Repeats     int     `json:"repeats"`
-	Status      string  `json:"status"`
-	ConfigJSON  *string `json:"configJson,omitempty"`
-	BuiltAt     *string `json:"builtAt"`
-	ItemCount   int     `json:"itemCount"`
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	AspectID    *int64   `json:"aspectId"`
+	BaseModel   string   `json:"baseModel"`
+	TriggerWord string   `json:"triggerWord"`
+	Repeats     int      `json:"repeats"`
+	Status      string   `json:"status"`
+	ConfigJSON  *string  `json:"configJson,omitempty"`
+	BuiltAt     *string  `json:"builtAt"`
+	ItemCount   int      `json:"itemCount"`
+	TempMax     *float64 `json:"tempMax"` // highest temperature the export may hold; nil = no limit
 }
 
 func (s *server) scanDataset(row *sql.Row) (*datasetRow, error) {
 	var d datasetRow
 	err := row.Scan(&d.ID, &d.Name, &d.AspectID, &d.BaseModel, &d.TriggerWord,
-		&d.Repeats, &d.Status, &d.ConfigJSON, &d.BuiltAt, &d.ItemCount)
+		&d.Repeats, &d.Status, &d.ConfigJSON, &d.BuiltAt, &d.ItemCount, &d.TempMax)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +42,8 @@ func (s *server) scanDataset(row *sql.Row) (*datasetRow, error) {
 const datasetSelect = `
 	SELECT d.id, d.name, d.aspect_id, d.base_model, d.trigger_word,
 	       d.repeats, d.status, d.config_json, d.built_at,
-	       (SELECT COUNT(*) FROM dataset_items di WHERE di.dataset_id = d.id)
+	       (SELECT COUNT(*) FROM dataset_items di WHERE di.dataset_id = d.id),
+	       d.temp_max
 	FROM datasets d`
 
 // GET /api/datasets
@@ -56,7 +58,7 @@ func (s *server) handleDatasetsList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var d datasetRow
 		if err := rows.Scan(&d.ID, &d.Name, &d.AspectID, &d.BaseModel, &d.TriggerWord,
-			&d.Repeats, &d.Status, &d.ConfigJSON, &d.BuiltAt, &d.ItemCount); err != nil {
+			&d.Repeats, &d.Status, &d.ConfigJSON, &d.BuiltAt, &d.ItemCount, &d.TempMax); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -159,8 +161,14 @@ func (s *server) handleDatasetUpdate(w http.ResponseWriter, r *http.Request) {
 		Repeats     *int    `json:"repeats"`
 		BaseModel   *string `json:"baseModel"`
 		ConfigJSON  *string `json:"configJson"`
+		// TempMax: a number sets the export limit, -1 clears it.
+		TempMax *float64 `json:"tempMax"`
 	}
 	if !readJSON(w, r, &body) {
+		return
+	}
+	if body.TempMax != nil && *body.TempMax != -1 && (*body.TempMax < 0 || *body.TempMax > 1) {
+		writeErr(w, http.StatusBadRequest, "tempMax must be within [0, 1] (or -1 to clear)")
 		return
 	}
 	if body.Name != nil && !datasetNameRe.MatchString(*body.Name) {
@@ -179,9 +187,11 @@ func (s *server) handleDatasetUpdate(w http.ResponseWriter, r *http.Request) {
 		  trigger_word = COALESCE(?, trigger_word),
 		  repeats = COALESCE(?, repeats),
 		  base_model = COALESCE(?, base_model),
-		  config_json = COALESCE(?, config_json)
+		  config_json = COALESCE(?, config_json),
+		  temp_max = CASE WHEN ? IS NULL THEN temp_max WHEN ? = -1 THEN NULL ELSE ? END
 		WHERE id = ?`,
-		body.Name, body.TriggerWord, body.Repeats, body.BaseModel, body.ConfigJSON, id)
+		body.Name, body.TriggerWord, body.Repeats, body.BaseModel, body.ConfigJSON,
+		body.TempMax, body.TempMax, body.TempMax, id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

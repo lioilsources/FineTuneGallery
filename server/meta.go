@@ -87,6 +87,7 @@ func (s *server) handleMeta(w http.ResponseWriter, r *http.Request) {
 		"styles":     s.ingestedStyles(),
 		"translator": s.translatorMeta(),
 		"judge":      s.judgeMeta(),
+		"taxonomy":   s.taxoMeta(),
 	})
 }
 

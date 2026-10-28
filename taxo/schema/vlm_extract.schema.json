@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ftg-taxonomy-v1",
+  "x-source-sha256": "6df4c4ce338e3bd96a1454160f3ba7341f28bb9d8a48745a5e43feb1deb0d76a",
+  "type": "object",
+  "properties": {
+    "subject": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "people",
+          "animals",
+          "environment",
+          "objects",
+          "abstract"
+        ]
+      },
+      "description": "Which of these are clearly depicted as a main subject? (several allowed)"
+    },
+    "person": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "age_group": {
+              "type": "string",
+              "enum": [
+                "child",
+                "teen",
+                "young_adult",
+                "adult",
+                "elderly",
+                "unknown"
+              ],
+              "description": "Apparent age group of the main person as drawn/rendered."
+            },
+            "gender_presentation": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "feminine",
+                  "masculine",
+                  "androgynous"
+                ]
+              },
+              "description": "Gender presentation of the depicted people as drawn (several if a group)."
+            },
+            "skin_tone": {
+              "type": "string",
+              "enum": [
+                "light",
+                "medium_light",
+                "medium",
+                "medium_dark",
+                "dark",
+                "unknown"
+              ],
+              "description": "Rendered skin tone of the main person on a light-to-dark scale (colour only, not ethnicity)."
+            },
+            "hair": {
+              "type": "object",
+              "properties": {
+                "length": {
+                  "type": "string",
+                  "enum": [
+                    "bald",
+                    "short",
+                    "medium",
+                    "long",
+                    "very_long",
+                    "unknown"
+                  ],
+                  "description": "Hair length of the main person."
+                },
+                "style": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "straight",
+                      "wavy",
+                      "curly",
+                      "messy",
+                      "ponytail",
+                      "twintails",
+                      "braid",
+                      "bun",
+                      "spiky",
+                      "dreadlocks",
+                      "undercut"
+                    ]
+                  },
+                  "description": "Hair style(s) of the main person."
+                },
+                "color": {
+                  "type": "string",
+                  "enum": [
+                    "blonde",
+                    "brown",
+                    "black",
+                    "red",
+                    "white_grey",
+                    "blue",
+                    "pink",
+                    "purple",
+                    "green",
+                    "multicolor",
+                    "unknown"
+                  ],
+                  "description": "Dominant hair colour of the main person."
+                }
+              },
+              "required": [
+                "length",
+                "style",
+                "color"
+              ],
+              "additionalProperties": false
+            },
+            "eyes": {
+              "type": "object",
+              "properties": {
+                "color": {
+                  "type": "string",
+                  "enum": [
+                    "blue",
+                    "brown",
+                    "green",
+                    "grey",
+                    "black",
+                    "red",
+                    "yellow",
+                    "purple",
+                    "pink",
+                    "heterochromia",
+                    "unknown"
+                  ],
+                  "description": "Eye colour of the main person, unknown if not visible."
+                }
+              },
+              "required": [
+                "color"
+              ],
+              "additionalProperties": false
+            },
+            "body_type": {
+              "type": "string",
+              "enum": [
+                "slim",
+                "average",
+                "curvy",
+                "muscular",
+                "plump",
+                "unknown"
+              ],
+              "description": "Body type of the main person as drawn, unknown if the body is not visible."
+            },
+            "clothing": {
+              "coverage": {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "revealing",
+                  "swimwear_underwear",
+                  "partial",
+                  "none",
+                  "unknown"
+                ],
+                "description": "How covered the main person is."
+              },
+              "type": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "dress",
+                    "shirt",
+                    "jacket_coat",
+                    "suit",
+                    "uniform",
+                    "armor",
+                    "traditional",
+                    "swimwear",
+                    "hat",
+                    "glasses",
+                    "scarf"
+                  ]
+                },
+                "description": "Visible clothing items / accessories."
+              }
+            },
+            "expression": {
+              "type": "string",
+              "enum": [
+                "smiling",
+                "neutral",
+                "serious",
+                "sad",
+                "angry",
+                "surprised",
+                "unknown"
+              ],
+              "description": "Facial expression of the main person, unknown if the face is not visible."
+            }
+          },
+          "required": [
+            "age_group",
+            "gender_presentation",
+            "skin_tone",
+            "hair",
+            "eyes",
+            "body_type",
+            "clothing",
+            "expression"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "style": {
+      "type": "object",
+      "properties": {
+        "medium": {
+          "type": "string",
+          "enum": [
+            "photo",
+            "render_3d",
+            "painting",
+            "watercolor",
+            "sketch_lineart",
+            "flat",
+            "cel_shaded",
+            "comic",
+            "chibi",
+            "pixel",
+            "papercraft",
+            "clay",
+            "unknown"
+          ],
+          "description": "Rendering medium. flat = flat colours without shading; cel_shaded = anime cel shading with hard shadow edges."
+        },
+        "era": {
+          "type": "string",
+          "enum": [
+            "contemporary",
+            "retro",
+            "vintage",
+            "futuristic",
+            "fantasy",
+            "folk",
+            "unknown"
+          ],
+          "description": "Era or genre the picture evokes."
+        },
+        "palette": {
+          "type": "string",
+          "enum": [
+            "natural",
+            "muted",
+            "vibrant",
+            "pastel",
+            "neon",
+            "monochrome",
+            "unknown"
+          ],
+          "description": "Overall colour palette."
+        },
+        "lighting": {
+          "type": "string",
+          "enum": [
+            "daylight",
+            "golden",
+            "night",
+            "soft",
+            "backlit",
+            "dramatic",
+            "low_key",
+            "unknown"
+          ],
+          "description": "Dominant lighting."
+        },
+        "camera": {
+          "type": "string",
+          "enum": [
+            "closeup",
+            "portrait",
+            "upper_body",
+            "full_body",
+            "wide",
+            "unknown"
+          ],
+          "description": "Framing / shot size."
+        }
+      },
+      "required": [
+        "medium",
+        "era",
+        "palette",
+        "lighting",
+        "camera"
+      ],
+      "additionalProperties": false
+    },
+    "rating": {
+      "type": "string",
+      "enum": [
+        "safe",
+        "suggestive",
+        "nsfw",
+        "explicit"
+      ],
+      "description": "Content rating of the image."
+    }
+  },
+  "required": [
+    "subject",
+    "person",
+    "style",
+    "rating"
+  ],
+  "additionalProperties": false
+}

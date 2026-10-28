@@ -1,0 +1,300 @@
+{
+ "comment": "Shared by taxo/tests (Python) and server/taxonomy_test.go \u2014 the minor-block rule on synthetic label vectors. No imagery.",
+ "thresholds": {
+  "safe_max": 0.2,
+  "suggestive_max": 0.45,
+  "nsfw_max": 0.7
+ },
+ "cases": [
+  {
+   "name": "adult explicit is not a minor case",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "adult",
+      "conf": 0.9
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.95,
+    "band": "explicit",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": null
+  },
+  {
+   "name": "child safe confident passes",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.9
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.05,
+    "band": "safe",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": null
+  },
+  {
+   "name": "child suggestive blocks",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.9
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.3,
+    "band": "suggestive",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "child nsfw blocks",
+   "labels": {
+    "siglip": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.5
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.6,
+    "band": "nsfw",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "child explicit blocks",
+   "labels": {
+    "wd14": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.8
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.95,
+    "band": "explicit",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "child safe but rating unsure blocks",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.9
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.05,
+    "band": "safe",
+    "unsure": true
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "teen suggestive blocks (stricter than plan)",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "teen",
+      "conf": 0.9
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.3,
+    "band": "suggestive",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "one evaluator says child, others adult: still blocks",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "adult",
+      "conf": 0.9
+     }
+    },
+    "wd14": {
+     "person.age_group": {
+      "value": "adult",
+      "conf": 0.9
+     }
+    },
+    "siglip": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.31
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.3,
+    "band": "suggestive",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "child below min_conf is ignored",
+   "labels": {
+    "siglip": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.29
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.3,
+    "band": "suggestive",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": null
+  },
+  {
+   "name": "wd14 loli tag alone + nsfw blocks",
+   "labels": {},
+   "wd14_signal": 0.7,
+   "ensemble": {
+    "temperature": 0.6,
+    "band": "nsfw",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "wd14 signal below min_conf ignored",
+   "labels": {},
+   "wd14_signal": 0.2,
+   "ensemble": {
+    "temperature": 0.6,
+    "band": "nsfw",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": null
+  },
+  {
+   "name": "human child label + suggestive blocks",
+   "labels": {
+    "human": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.0
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.3,
+    "band": "suggestive",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "child, no ensemble, wd14 non-safe quarantines",
+   "labels": {
+    "wd14": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.6
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": null,
+   "wd14_temp": 0.5,
+   "want": "quarantine"
+  },
+  {
+   "name": "child, no ensemble, wd14 safe passes",
+   "labels": {
+    "wd14": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.6
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": null,
+   "wd14_temp": 0.05,
+   "want": null
+  },
+  {
+   "name": "child, no rating at all quarantines",
+   "labels": {
+    "wd14": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.6
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": null,
+   "wd14_temp": null,
+   "want": "quarantine"
+  },
+  {
+   "name": "elderly explicit is not a minor case",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "elderly",
+      "conf": 0.9
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.95,
+    "band": "explicit",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": null
+  }
+ ]
+}

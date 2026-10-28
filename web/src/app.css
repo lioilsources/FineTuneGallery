@@ -875,3 +875,76 @@ button {
     overflow: visible;
   }
 }
+
+/* ---------- content taxonomy (UC25) ---------- */
+.temp {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.temp input[type='range'] {
+  width: 140px;
+  accent-color: var(--accent);
+}
+.temp-val {
+  min-width: 96px;
+  font-family: var(--mono);
+  color: var(--text);
+}
+.badge.b-temp {
+  font-weight: 700;
+  background: rgba(0, 0, 0, 0.6);
+}
+.badge.b-suggestive {
+  color: #facc15;
+}
+.badge.b-nsfw {
+  color: #fb923c;
+}
+.badge.b-explicit {
+  color: var(--dislike);
+}
+.taxo-panel table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.taxo-panel td,
+.taxo-panel th {
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.taxo-panel th {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+.taxo-panel .unsure {
+  color: #facc15;
+}
+.taxo-panel .agree {
+  color: var(--like);
+}
+.taxo-panel select {
+  max-width: 130px;
+}
+.taxo-panel .multi {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.taxo-similar {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 4px;
+  margin-top: 8px;
+}
+.taxo-similar img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 4px;
+}
