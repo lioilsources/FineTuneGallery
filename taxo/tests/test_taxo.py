@@ -117,7 +117,8 @@ class TestConformal(unittest.TestCase):
         cal = [(0.9, "explicit")] * 50 + [(0.05, "safe")] * 500
         res = conformal.fit(cal, TAX, "synthetic")
         self.assertFalse(res["explicit_guard_valid"])
-        self.assertEqual(res["thresholds"]["explicit_guard"], 0.0)
+        self.assertIsNone(res["thresholds"]["explicit_guard"])
+        self.assertFalse(res["valid"])
 
     def test_wilson(self):
         self.assertLess(conformal.wilson_lower(98, 100), 0.98)

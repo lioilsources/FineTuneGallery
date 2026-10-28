@@ -953,6 +953,18 @@ func (s *server) handleThresholdsPut(w http.ResponseWriter, r *http.Request) {
 	if body.Source == "" {
 		body.Source = "manual"
 	}
+	// conformal.py marks a fit without enough labels invalid (too few
+	// explicit for the recall guard, no safe threshold with the precision
+	// bound). Such a fit carries no guarantee and is not installed.
+	if len(body.Fit) > 0 {
+		var fit struct {
+			Valid *bool `json:"valid"`
+		}
+		if json.Unmarshal(body.Fit, &fit) == nil && fit.Valid != nil && !*fit.Valid {
+			writeErr(w, http.StatusBadRequest, "fit is not valid (too few labels for the guarantees) — not installed")
+			return
+		}
+	}
 	old, oldSrc := activeBands(s.db)
 	tx, err := s.db.Begin()
 	if err != nil {

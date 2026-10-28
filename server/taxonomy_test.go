@@ -410,6 +410,11 @@ func TestThresholdChangeRebandsAuditsAndReappliesTheRule(t *testing.T) {
 		"thresholds": bandThresholds{SafeMax: 0.5, SuggestiveMax: 0.4, NsfwMax: 0.7}}); r.Code != 400 {
 		t.Fatalf("non-increasing thresholds → %d", r.Code)
 	}
+	if r := f.do("PUT", "/api/taxonomy/thresholds", map[string]any{
+		"thresholds": bandThresholds{SafeMax: 0.1, SuggestiveMax: 0.4, NsfwMax: 0.7},
+		"fit":        map[string]any{"valid": false}}); r.Code != 400 {
+		t.Fatalf("invalid conformal fit → %d", r.Code)
+	}
 }
 
 func TestHumanLabelsWinAndBlindLabelQueue(t *testing.T) {

@@ -134,13 +134,16 @@ def fit(pairs: list[tuple[float, str]], tax: taxolib.Taxonomy, source: str) -> d
     eps = 1e-4
     sugg = max(sugg, safe_max + eps)
     nsfw = max(nsfw, sugg + eps)
+    # An invalid guard is left out, not 0: a guard of 0 would send every image
+    # to unsure. The fit is then marked invalid and the server refuses it.
     th = {"safe_max": round(safe_max, 6), "suggestive_max": round(sugg, 6), "nsfw_max": round(nsfw, 6),
-          "explicit_guard": round(min(guard, nsfw), 6)}
+          "explicit_guard": round(min(guard, nsfw), 6) if guard_ok else None}
     # empirical check on the calibration set itself (optimistic; the
     # guarantee is the construction, this is the sanity print)
     ex = [s for s, l in pairs if l == "explicit"]
-    caught = sum(1 for s in ex if s >= th["explicit_guard"])
-    unsure = sum(1 for s, _ in pairs if th["explicit_guard"] <= s <= th["nsfw_max"])
+    g = th["explicit_guard"] if th["explicit_guard"] is not None else th["nsfw_max"]
+    caught = sum(1 for s in ex if s >= g)
+    unsure = sum(1 for s, _ in pairs if g <= s <= th["nsfw_max"]) if guard_ok else 0
     counts = {b: sum(1 for _, l in pairs if l == b) for b in tax.bands}
     return {
         "thresholds": th, "source": source, "n": len(pairs), "label_counts": counts,
@@ -185,6 +188,7 @@ def synth(n: int, seed: int = 1, shift: float = 0.0) -> list[tuple[float, str]]:
 
 
 def evaluate(th: dict, pairs) -> dict:
+    th = {**th, "explicit_guard": th["explicit_guard"] if th["explicit_guard"] is not None else th["nsfw_max"]}
     ex = [s for s, l in pairs if l == "explicit"]
     pred_safe = [(s, l) for s, l in pairs if s <= th["safe_max"]]
     return {
