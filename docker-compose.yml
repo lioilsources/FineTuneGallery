@@ -30,6 +30,15 @@ services:
       # Over LAN on purpose — comfyui.ol1n.com sits behind CF Access and would
       # answer this with a 403 login page.
       - COMFYUI_URL=http://192.168.88.66:8188
+      # AiStack LLM gateway (LiteLLM) on the LAN — the prompt translator and
+      # the VL judge both call through it. Set in .env, not here: empty keeps
+      # both off and the app sends prose exactly as before (fail open), so
+      # turning it on is a deploy decision, not a code change. Each alias has
+      # no fallback on the AiStack side; a down model is a 502, never a
+      # different model's answer under the same version string.
+      - LLM_GATEWAY_URL=${LLM_GATEWAY_URL:-}
+      - TRANSLATE_MODEL=${TRANSLATE_MODEL:-prompt-tags}
+      - JUDGE_MODEL=${JUDGE_MODEL:-judge}
     volumes:
       - ${DATA_DIR:-./data}:/data
     # ports:
