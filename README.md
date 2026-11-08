@@ -39,7 +39,16 @@ curl localhost:8097/healthz     # {"status":"ok"}
 cp .env.example .env            # DATA_DIR=/volume1/finetune
 docker compose up -d --build
 curl localhost:8092/healthz     # {"status":"ok"} (odkomentuj ports v compose)
+
+# překlad promptu + VL soudce: v .env LLM_GATEWAY_URL=http://<spark>:8080
+docker compose up -d
+curl -s localhost:8092/api/meta | jq .translator   # enabled:true, vocab > 0
+curl -s localhost:8092/api/judge | jq .enabled      # true
 ```
+
+`LLM_GATEWAY_URL` je v `.env`, ne v compose: prázdné = překladač i soudce
+vypnuté a appka posílá prózu jako dřív. Zapnutí je rozhodnutí deploye, ne
+změna kódu, a adresa SPARKu nejde do veřejného repa.
 
 Cloudflare je **předprovisionováno** (2026-07-19): dedikovaný tunel
 `finetune-nas` (`8a88b8b7-dc02-4feb-8c64-e972aa50fd28`, config v
