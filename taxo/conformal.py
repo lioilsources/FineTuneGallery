@@ -199,6 +199,30 @@ def evaluate(th: dict, pairs) -> dict:
     }
 
 
+def strata_report(th: dict, pairs3: list[tuple[float, str, str]], tax: taxolib.Taxonomy) -> dict:
+    """Per labelling stratum (taxobench -calib-hi/-calib-lo): the guarantee only
+    holds for the population the explicit labels were drawn from. A stratum
+    with ≥ explicit_needed explicit labels gets its own guard check; a stratum
+    where the user found few or no explicit gets an upper bound on how many
+    explicit images it hides (exact one-sided 95 %: 1 − 0.05^(1/n) at k = 0,
+    the "rule of three"), so a report never says "none" from a sample."""
+    cfg = tax.rating["conformal"]
+    out = {}
+    for st in sorted({x for _, _, x in pairs3}):
+        pairs = [(sc, b) for sc, b, x in pairs3 if x == st]
+        ex = [sc for sc, b in pairs if b == "explicit"]
+        n, k = len(pairs), len(ex)
+        _, guard_ok = explicit_guard(ex, cfg["explicit_recall"])
+        upper = (1 - 0.05 ** (1 / n)) if k == 0 else 1 - wilson_lower(n - k, n)
+        out[st or "unqueued"] = {
+            "n": n, "label_counts": {b: sum(1 for _, l in pairs if l == b) for b in tax.bands},
+            **evaluate(th, pairs),
+            "explicit_guard_valid_here": guard_ok,
+            "explicit_share_upper95": round(upper, 4) if n else None,
+        }
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -223,15 +247,20 @@ def main(argv=None) -> int:
         return 0
 
     scores = _scores(a.scores)
+    stratum: dict[str, str] = {}
     if a.labels:
-        truth = {r["image"]: r["rating"]["band"] for r in taxolib.read_jsonl(a.labels)
-                 if (r.get("rating") or {}).get("band")}
+        rows = [r for r in taxolib.read_jsonl(a.labels) if (r.get("rating") or {}).get("band")]
+        truth = {r["image"]: r["rating"]["band"] for r in rows}
+        stratum = {r["image"]: r.get("stratum", "") for r in rows}
         source = "human"
     else:
         truth = _pseudo_wd14(a.wd14 or a.scores)
         source = "pseudo:wd14-argmax"
     pairs = [(scores[i], b) for i, b in truth.items() if i in scores]
     res = fit(pairs, tax, source)
+    if stratum:
+        res["strata"] = strata_report(res["thresholds"],
+                                      [(scores[i], b, stratum[i]) for i, b in truth.items() if i in scores], tax)
     with open(a.out, "w") as fo:
         json.dump(res, fo, indent=1)
     print(json.dumps({k: res[k] for k in ("thresholds", "n", "label_counts", "valid")}))

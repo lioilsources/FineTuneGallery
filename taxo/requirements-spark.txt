@@ -1,0 +1,12 @@
+# taxo/ evaluators on SPARK (aarch64, DGX Spark). torch: the cu130 aarch64 wheel (2.14.1+cu130 in taxo/.venv).
+# torch with CUDA: pip install torch --index-url https://download.pytorch.org/whl/cu128
+torch>=2.6
+transformers>=4.56
+onnxruntime>=1.20   # aarch64 (SPARK): no GPU build on PyPI, WD14 runs on CPU
+onnx>=1.17
+pandas>=2.2
+pyyaml>=6
+pillow>=11
+numpy>=2
+huggingface_hub>=0.27
+requests>=2.32
