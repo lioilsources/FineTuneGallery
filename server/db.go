@@ -256,6 +256,32 @@ WHERE i.blob_present = 1
                   WHERE bi.sha256 = i.sha256);
 `
 
+// v7: the row of the lab's prompt file (YAML or CSV) a picture came from, and
+// the text that row gave the model, apart from the prefix and style the lab
+// glues around it. NULL for everything not planned from a prompt file.
+const migV7 = `
+ALTER TABLE nodes ADD COLUMN prompt_body TEXT;
+ALTER TABLE nodes ADD COLUMN prompt_body_text TEXT;
+CREATE INDEX nodes_prompt_body ON nodes(prompt_body);
+
+DROP VIEW gallery;
+CREATE VIEW gallery AS
+SELECT i.id, i.sha256, i.idx, i.node_id, n.session_id, n.prompt,
+       n.prompt_sent, n.translator, n.prompt_body,
+       n.positive_prefix, n.model_id, n.lora_name, n.lora_strength,
+       n.style_id, n.medium_id, n.pose_id, n.is_repose, n.seed,
+       n.created_at, n.parent_id, n.source_image_id, n.origin,
+       COALESCE(r.score, 0)     AS score,
+       COALESCE(r.critique, '') AS critique
+FROM images i
+JOIN nodes n ON n.id = i.node_id
+LEFT JOIN ratings r ON r.image_id = i.id
+WHERE i.blob_present = 1
+  AND NOT EXISTS (SELECT 1 FROM taxonomy_blocks tb
+                  JOIN images bi ON bi.id = tb.image_id
+                  WHERE bi.sha256 = i.sha256);
+`
+
 // openDB opens (creating if needed) the SQLite database and applies pending
 // migrations. Single-user service: one *sql.DB with WAL is all we need.
 func openDB(path string) (*sql.DB, error) {
@@ -285,6 +311,7 @@ var migrations = []mig{
 	{4, migV4},
 	{5, migV5},
 	{6, migV6},
+	{7, migV7},
 }
 
 // schemaVersion is the version openDB brings a database up to.

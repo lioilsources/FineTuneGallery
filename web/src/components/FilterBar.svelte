@@ -37,6 +37,7 @@
       f.score !== 'all' ||
       f.session !== '' ||
       f.prompt !== '' ||
+      f.promptBody !== '' ||
       f.style !== '' ||
       f.epoch !== '' ||
       f.artist !== '' ||
@@ -158,6 +159,7 @@
       parts.push(`session: ${s ? s.title : f.session}`);
     }
     if (f.prompt) parts.push(`prompt: “${f.prompt}”`);
+    if (f.promptBody) parts.push(`CSV row: ${f.promptBody}`);
     if (f.epoch) parts.push(`epoch: ${facetName(sf.epochs, f.epoch)}`);
     if (f.artist) parts.push(`artist: ${facetName(sf.artists, f.artist)}`);
     if (f.technique) parts.push(`technique: ${facetName(sf.techniques, f.technique)}`);
@@ -297,6 +299,11 @@
       oninput={onPromptInput}
       onkeydown={promptKeys}
     />
+    {#if f.promptBody}
+      <button class="chip active" title="Row of the lab's prompt file; click to drop" onclick={() => setF({ promptBody: '' })}
+        >CSV: {f.promptBody} ✕</button
+      >
+    {/if}
     {#if sf.styles.length}
       <select class="sel" value={f.epoch} onchange={(e) => setFacet({ epoch: e.target.value })} title="Epoch">
         <option value="">Any epoch</option>

@@ -87,6 +87,11 @@ V galerii je řádek **prompt**: textové pole a čtyři výběry.
   appky). Epochy jsou podle data, ne podle evropských dějin umění, např. aztécký
   kodex je v „1400–1600“. Styly bez epochy jsou čisté techniky (akvarel, linoryt).
   Tradice, které nejdou datovat, mají „Traditional cultures“.
+- **CSV prompt:** obrázek z labu naplánovaný ze souboru promptů (CSV nebo YAML)
+  nese id řádku (`promptBody`) a text, který ten řádek dal modelu
+  (`promptBodyText`). Detail je ukazuje zvlášť od složeného promptu a klik na id
+  vyfiltruje všechny obrázky z téhož řádku. Starší obrázky to mají až po novém
+  exportu běhu z labu (id uzlů jsou deterministická, nic se nezdvojí).
 - Nový styl, který v mapě chybí, funguje dál přes `style=`. `GET /api/meta`
   ho vypíše v `styleFacets.unclassified`, pak ho doplň do JSON.
 
@@ -469,7 +474,7 @@ POST /api/ingest/manifest                  → {"needed":[sha…]}
 PUT  /api/ingest/images/{sha256}           raw PNG
 POST /api/ingest/sessions/{id}/finalize    → {"images":N,"newBlobs":M}
 GET  /api/images?model=&aspect=&score=&style=&lora=&lora_strength=&pose=
-                &prompt=<slova>&epoch=&artist=&technique=
+                &prompt=<slova>&epoch=&artist=&technique=&prompt_body=<řádek CSV>
                 &criterion=pose_adherence:1|-1|none&judge=pose_adherence:disagree|unrated&cursor=
 GET  /api/images/{id}                      detail + parentChain
 PUT  /api/images/{id}/rating|aspects|criteria|caption

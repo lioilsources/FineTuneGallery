@@ -45,6 +45,8 @@ type ManifestNode struct {
 	Seed           *int64          `json:"seed"`
 	NegativePrompt *string         `json:"negativePrompt"`
 	PositivePrefix *string         `json:"positivePrefix"`
+	PromptBody     *string         `json:"promptBody"`     // lab: prompt-file row id
+	PromptBodyText *string         `json:"promptBodyText"` // lab: that row's text for this model
 	Width          *int64          `json:"width"`
 	Height         *int64          `json:"height"`
 	Steps          *int64          `json:"steps"`
@@ -109,8 +111,9 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 		                   origin, model_id, lora_name, lora_strength, style_id,
 		                   medium_id, prompt_sent, translator, pose_id, is_repose, seed,
 		                   negative_prompt, positive_prefix, width, height,
-		                   steps, cfg, denoise, sampler_name, scheduler, created_at)
-		VALUES (?, ?, ?, ?, ?, COALESCE(?, 'generated'), ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		                   steps, cfg, denoise, sampler_name, scheduler, created_at,
+		                   prompt_body, prompt_body_text)
+		VALUES (?, ?, ?, ?, ?, COALESCE(?, 'generated'), ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 		  prompt = excluded.prompt,
 		  origin = excluded.origin,
@@ -126,6 +129,8 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 		  seed = COALESCE(excluded.seed, nodes.seed),
 		  negative_prompt = COALESCE(excluded.negative_prompt, nodes.negative_prompt),
 		  positive_prefix = COALESCE(excluded.positive_prefix, nodes.positive_prefix),
+		  prompt_body = COALESCE(excluded.prompt_body, nodes.prompt_body),
+		  prompt_body_text = COALESCE(excluded.prompt_body_text, nodes.prompt_body_text),
 		  width = COALESCE(excluded.width, nodes.width),
 		  height = COALESCE(excluded.height, nodes.height),
 		  steps = COALESCE(excluded.steps, nodes.steps),
@@ -161,6 +166,7 @@ func (s *server) handleIngestManifest(w http.ResponseWriter, r *http.Request) {
 			n.MediumID, n.PromptSent, n.Translator, n.PoseID, n.IsRepose, n.Seed,
 			n.NegativePrompt, n.PositivePrefix, n.Width, n.Height,
 			n.Steps, n.Cfg, n.Denoise, n.SamplerName, n.Scheduler, n.CreatedAt,
+			n.PromptBody, n.PromptBodyText,
 		); err != nil {
 			writeErr(w, http.StatusInternalServerError, "upsert node "+n.ID+": "+err.Error())
 			return
