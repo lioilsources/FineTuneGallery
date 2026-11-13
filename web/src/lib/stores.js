@@ -95,7 +95,11 @@ export const emptyFilter = Object.freeze({
   aspect: '', // aspect name
   score: 'all', // 'all' | 'liked' | 'disliked' | 'unrated'
   session: '',
+  prompt: '', // words that must all appear in the prompt (case-insensitive)
   style: '', // art-style preset id (lab matrices are one style per row)
+  epoch: '', // style facets (meta.styleFacets): one style has all three
+  artist: '',
+  technique: '',
   medium: '', // '' | 'none' (the A/B control arm) | <medium preset id>
   translator: '', // '' | 'none' (raw prose) | <translator version, e.g. prompt-tags@v1>
   lora: '', // '' | 'none' | <lora name>
@@ -122,7 +126,11 @@ export function filterToParams(f) {
   else if (f.score === 'disliked') p.set('score', '-1');
   else if (f.score === 'unrated') p.set('unrated', '1');
   if (f.session) p.set('session', String(f.session));
+  if (f.prompt.trim()) p.set('prompt', f.prompt.trim());
   if (f.style) p.set('style', f.style);
+  if (f.epoch) p.set('epoch', f.epoch);
+  if (f.artist) p.set('artist', f.artist);
+  if (f.technique) p.set('technique', f.technique);
   if (f.medium) p.set('medium', f.medium);
   if (f.translator) p.set('translator', f.translator);
   if (f.lora) p.set('lora', f.lora);

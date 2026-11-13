@@ -72,6 +72,24 @@ kopírují (`make stylemap-publish` tamtéž). Jen soubory: žádné výpisy adr
 žádné soubory začínající tečkou. Manifesty se revalidují při každém otevření,
 obrázky se cachují den, protože pack se přestavuje pod stejnými jmény.
 
+### Filtr podle promptu a stylu
+
+V galerii je řádek **prompt**: textové pole a čtyři výběry.
+
+- **Prompt** hledá slova (všechna musí být v promptu, bez ohledu na velikost
+  písmen) v promptu uživatele i v promptu poslaném modelu. Enter použije hned,
+  Esc smaže.
+- **Epocha, umělec, technika** jsou tři fasety stylu. Každý styl má všechny
+  tři (umělce jen styly konkrétního autora), takže „technika: grafika“ najde
+  linoryt i Hokusaie a Warhola. Výběry se kombinují (AND) a seznam stylů se
+  podle nich zúží.
+- Klasifikace je ručně v `server/stylefacets.json` (podle registru stylů
+  appky). Epochy jsou podle data, ne podle evropských dějin umění, např. aztécký
+  kodex je v „1400–1600“. Styly bez epochy jsou čisté techniky (akvarel, linoryt).
+  Tradice, které nejdou datovat, mají „Traditional cultures“.
+- Nový styl, který v mapě chybí, funguje dál přes `style=`. `GET /api/meta`
+  ho vypíše v `styleFacets.unclassified`, pak ho doplň do JSON.
+
 Caption vrstvy: `auto` (WD14 booru tagy, nikdy se nepřepisuje) < `refined`
 (LLM, v1.5) < `human`. Do tréninku jde `trigger word, <efektivní caption>`.
 
@@ -451,6 +469,7 @@ POST /api/ingest/manifest                  → {"needed":[sha…]}
 PUT  /api/ingest/images/{sha256}           raw PNG
 POST /api/ingest/sessions/{id}/finalize    → {"images":N,"newBlobs":M}
 GET  /api/images?model=&aspect=&score=&style=&lora=&lora_strength=&pose=
+                &prompt=<slova>&epoch=&artist=&technique=
                 &criterion=pose_adherence:1|-1|none&judge=pose_adherence:disagree|unrated&cursor=
 GET  /api/images/{id}                      detail + parentChain
 PUT  /api/images/{id}/rating|aspects|criteria|caption
