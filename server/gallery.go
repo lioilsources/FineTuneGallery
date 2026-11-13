@@ -67,6 +67,11 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 	}
 	// "none" is the control arm of the medium A/B, so it has to be selectable:
 	// without it the rows the experiment compares against are unreachable.
+	// The row of the lab's prompt file (CSV/YAML) the picture came from.
+	if v := get("prompt_body"); v != "" {
+		conds = append(conds, "g.prompt_body = ?")
+		args = append(args, v)
+	}
 	if v := get("medium"); v != "" {
 		if v == "none" {
 			conds = append(conds, "COALESCE(g.medium_id, '') = ''")
@@ -383,6 +388,7 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 			prompt, origin                    string
 			modelID, lora, styleID, poseID    *string
 			negative, prefix                  *string
+			body, bodyText                    *string
 			samplerName, scheduler, createdAt *string
 			seed, nw, nh, steps               *int64
 			cfg, denoise, loraStrength        *float64
@@ -392,12 +398,14 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 			SELECT prompt, origin, model_id, lora_name, lora_strength, style_id,
 			       pose_id, is_repose, negative_prompt,
 			       positive_prefix, sampler_name, scheduler, created_at,
-			       seed, width, height, steps, cfg, denoise
+			       seed, width, height, steps, cfg, denoise,
+			       prompt_body, prompt_body_text
 			FROM nodes WHERE id = ?`, it.NodeID).Scan(
 			&prompt, &origin, &modelID, &lora, &loraStrength, &styleID,
 			&poseID, &isRepose, &negative,
 			&prefix, &samplerName, &scheduler, &createdAt,
-			&seed, &nw, &nh, &steps, &cfg, &denoise)
+			&seed, &nw, &nh, &steps, &cfg, &denoise,
+			&body, &bodyText)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -409,7 +417,7 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 			"positivePrefix": prefix, "samplerName": samplerName,
 			"scheduler": scheduler, "createdAt": createdAt, "seed": seed,
 			"width": nw, "height": nh, "steps": steps, "cfg": cfg,
-			"denoise": denoise,
+			"denoise": denoise, "promptBody": body, "promptBodyText": bodyText,
 		}
 	}
 
