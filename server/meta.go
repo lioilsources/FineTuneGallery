@@ -80,14 +80,16 @@ func modelByID(id string) *ModelMeta {
 
 func (s *server) handleMeta(w http.ResponseWriter, r *http.Request) {
 	snap := s.catalogSnapshot()
+	styles := s.ingestedStyles()
 	writeJSON(w, http.StatusOK, map[string]any{
-		"models":     snap.Models,
-		"comfyui":    snap.Comfy,
-		"criteria":   kCriteria,
-		"styles":     s.ingestedStyles(),
-		"translator": s.translatorMeta(),
-		"judge":      s.judgeMeta(),
-		"taxonomy":   s.taxoMeta(),
+		"models":      snap.Models,
+		"comfyui":     snap.Comfy,
+		"criteria":    kCriteria,
+		"styles":      styles,
+		"styleFacets": styleFacets.facetsFor(styles),
+		"translator":  s.translatorMeta(),
+		"judge":       s.judgeMeta(),
+		"taxonomy":    s.taxoMeta(),
 	})
 }
 

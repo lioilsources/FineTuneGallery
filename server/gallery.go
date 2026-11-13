@@ -191,6 +191,12 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 		conds = append(conds, "g.created_at <= ?")
 		args = append(args, v)
 	}
+	if conds, args, bad = styleFacetFilter(get, conds, args); bad != "" {
+		return "", nil, bad
+	}
+	if conds, args, bad = promptFilter(get, conds, args); bad != "" {
+		return "", nil, bad
+	}
 	conds, args, bad = taxoFilter(get, conds, args)
 	if bad != "" {
 		return "", nil, bad

@@ -36,7 +36,11 @@
       f.aspect !== '' ||
       f.score !== 'all' ||
       f.session !== '' ||
+      f.prompt !== '' ||
       f.style !== '' ||
+      f.epoch !== '' ||
+      f.artist !== '' ||
+      f.technique !== '' ||
       f.medium !== '' ||
       f.translator !== '' ||
       f.lora !== '' ||
@@ -50,6 +54,62 @@
       f.ratingUnsure ||
       f.labelQueue
   );
+
+  /* ---------------- prompt + style facets ---------------- */
+
+  const sf = $derived($meta.styleFacets || { epochs: [], artists: [], techniques: [], styles: [] });
+  // The style picker only offers styles the chosen facets leave open.
+  const styleOpts = $derived(
+    sf.styles
+      .filter(
+        (st) =>
+          (!f.epoch || st.epoch === f.epoch) &&
+          (!f.artist || st.artist === f.artist) &&
+          (!f.technique || st.technique === f.technique)
+      )
+      .sort((a, b) => a.label.localeCompare(b.label))
+  );
+
+  function setFacet(patch) {
+    // a facet that rules out the picked style drops it
+    const next = { ...f, ...patch };
+    const st = sf.styles.find((x) => x.id === next.style);
+    const keep =
+      st &&
+      (!next.epoch || st.epoch === next.epoch) &&
+      (!next.artist || st.artist === next.artist) &&
+      (!next.technique || st.technique === next.technique);
+    setF({ ...patch, ...(keep ? {} : { style: '' }) });
+  }
+
+  function facetName(list, id) {
+    const v = list.find((x) => x.id === id);
+    return v ? v.label : id;
+  }
+
+  // Typed text reaches the filter after a pause, not on every key.
+  let promptText = $state($galleryFilter.prompt);
+  let promptTimer;
+  $effect(() => {
+    if (f.prompt !== promptText.trim() && document.activeElement?.id !== 'prompt-filter') promptText = f.prompt;
+  });
+  function onPromptInput() {
+    clearTimeout(promptTimer);
+    promptTimer = setTimeout(() => setF({ prompt: promptText.trim() }), 350);
+  }
+  function promptKeys(e) {
+    if (e.key === 'Enter') {
+      clearTimeout(promptTimer);
+      setF({ prompt: promptText.trim() });
+    }
+    if (e.key === 'Escape') {
+      clearTimeout(promptTimer);
+      promptText = '';
+      setF({ prompt: '' });
+      e.currentTarget.blur();
+    }
+    e.stopPropagation(); // gallery shortcuts must not fire while typing
+  }
 
   /* ---------------- content taxonomy ---------------- */
 
@@ -97,7 +157,11 @@
       const s = $sessions.find((x) => String(x.id) === String(f.session));
       parts.push(`session: ${s ? s.title : f.session}`);
     }
-    if (f.style) parts.push(`style: ${f.style}`);
+    if (f.prompt) parts.push(`prompt: “${f.prompt}”`);
+    if (f.epoch) parts.push(`epoch: ${facetName(sf.epochs, f.epoch)}`);
+    if (f.artist) parts.push(`artist: ${facetName(sf.artists, f.artist)}`);
+    if (f.technique) parts.push(`technique: ${facetName(sf.techniques, f.technique)}`);
+    if (f.style) parts.push(`style: ${facetName(sf.styles, f.style)}`);
     if (f.medium) parts.push(`medium: ${f.medium}`);
     if (f.translator) parts.push(`translator: ${f.translator === 'none' ? 'raw prose' : f.translator}`);
     if (f.lora) parts.push(`lora: ${f.lora === 'none' ? 'none' : f.lora}${f.loraStrength ? ` @ ${f.loraStrength}` : ''}`);
@@ -182,17 +246,6 @@
       {/each}
     </select>
 
-    <!-- Only rendered once styled images exist: on a gallery fed purely by the
-         phone this dropdown would be an empty control. -->
-    {#if ($meta.styles || []).length}
-      <select class="sel" value={f.style} onchange={(e) => setF({ style: e.target.value })} title="Art style">
-        <option value="">All styles</option>
-        {#each $meta.styles as st (st)}
-          <option value={st}>{st}</option>
-        {/each}
-      </select>
-    {/if}
-
     <select class="sel" value={f.criterion} onchange={(e) => setF({ criterion: e.target.value })} title="Criterion filter">
       <option value="">Any criterion</option>
       {#each $meta.criteria as c (c)}
@@ -227,6 +280,48 @@
 
     {#if anyActive}
       <button class="chip ghost" onclick={clearAll}>clear</button>
+    {/if}
+  </div>
+
+  <!-- Prompt text and art style. The style dropdowns appear only once styled
+       images exist: on a gallery fed purely by the phone they would be empty. -->
+  <div class="filter-row">
+    <span class="lbl">prompt</span>
+    <input
+      id="prompt-filter"
+      class="inp"
+      type="search"
+      placeholder="words in prompt"
+      title="All words must appear in the prompt (Enter applies, Esc clears)"
+      bind:value={promptText}
+      oninput={onPromptInput}
+      onkeydown={promptKeys}
+    />
+    {#if sf.styles.length}
+      <select class="sel" value={f.epoch} onchange={(e) => setFacet({ epoch: e.target.value })} title="Epoch">
+        <option value="">Any epoch</option>
+        {#each sf.epochs as v (v.id)}
+          <option value={v.id}>{v.label} ({v.styles})</option>
+        {/each}
+      </select>
+      <select class="sel" value={f.artist} onchange={(e) => setFacet({ artist: e.target.value })} title="Artist">
+        <option value="">Any artist</option>
+        {#each sf.artists as v (v.id)}
+          <option value={v.id}>{v.label}{v.styles > 1 ? ` (${v.styles})` : ''}</option>
+        {/each}
+      </select>
+      <select class="sel" value={f.technique} onchange={(e) => setFacet({ technique: e.target.value })} title="Technique">
+        <option value="">Any technique</option>
+        {#each sf.techniques as v (v.id)}
+          <option value={v.id}>{v.label} ({v.styles})</option>
+        {/each}
+      </select>
+      <select class="sel" value={f.style} onchange={(e) => setF({ style: e.target.value })} title="Art style">
+        <option value="">All styles{styleOpts.length < sf.styles.length ? ` (${styleOpts.length})` : ''}</option>
+        {#each styleOpts as st (st.id)}
+          <option value={st.id}>{st.label}</option>
+        {/each}
+      </select>
     {/if}
   </div>
 
