@@ -24,6 +24,10 @@ services:
     environment:
       - FINETUNE_ADDR=:8092
       - FINETUNE_DATA=/data
+      # Content taxonomy (taxo/, UC25) and the GPU batch's own token — both
+      # from .env: empty keeps the taxonomy off and the worker locked out.
+      - FINETUNE_TAXONOMY=${FINETUNE_TAXONOMY:-}
+      - WORKER_TOKEN=${WORKER_TOKEN:-}
       - TAGGER_URL=http://192.168.88.66:8097
       # Same box: the model picker is merged from what ComfyUI can actually
       # load, so a checkpoint downloaded there shows up here without a deploy.

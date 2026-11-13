@@ -48,24 +48,27 @@ class Head(nn.Module):
         return [hd(h) for hd in self.heads], torch.sigmoid(self.temp(h)).squeeze(-1)
 
 
-def _targets(tax, ids, combined, human, min_agree):
-    """→ per node: (y [N, k] float, mask [N] bool); temperature (t [N], mask)."""
+def _targets(tax, ids, combined, human, min_agree, consensus_weight=0.3):
+    """→ per node: (y [N, k] float, mask [N] bool, weight [N]); temperature
+    (t [N], mask, weight). A human label weighs 1, a consensus label
+    consensus_weight (plan 05 §4.1: human 1, consensus of ≥ 2 evaluators 0.3)."""
     by = {r["image"]: r for r in combined}
     hum = {r["image"]: r for r in human}
     N = len(ids)
-    ys, ms = [], []
+    ys, ms, ws = [], [], []
     for n in tax.nodes:
         k = len(n.values)
         y = np.zeros((N, k), np.float32)
         m = np.zeros(N, bool)
+        w = np.zeros(N, np.float32)
         for i, iid in enumerate(ids):
             lab = None
-            if iid in hum and n.id in hum[iid]["labels"]:
-                lab = hum[iid]["labels"][n.id]["value"]
+            if iid in hum and n.id in hum[iid].get("labels", {}):
+                lab, w[i] = hum[iid]["labels"][n.id]["value"], 1.0
             elif iid in by:
                 c = by[iid]["consensus"].get(n.id)
                 if c and not c["unsure"] and c["n"] >= min_agree:
-                    lab = c["value"]
+                    lab, w[i] = c["value"], consensus_weight
             if lab is None:
                 continue
             if n.kind == "multi":
@@ -76,14 +79,36 @@ def _targets(tax, ids, combined, human, min_agree):
             m[i] = True
         ys.append(y)
         ms.append(m)
+        ws.append(w)
     t = np.zeros(N, np.float32)
     tm = np.zeros(N, bool)
+    tw = np.zeros(N, np.float32)
     for i, iid in enumerate(ids):
         if iid in hum and hum[iid].get("rating", {}).get("band"):
-            t[i], tm[i] = BAND_MID[hum[iid]["rating"]["band"]], True
+            t[i], tm[i], tw[i] = BAND_MID[hum[iid]["rating"]["band"]], True, 1.0
         elif iid in by and by[iid]["rating"].get("temperature") is not None:
-            t[i], tm[i] = by[iid]["rating"]["temperature"], True
-    return ys, ms, t, tm
+            t[i], tm[i], tw[i] = by[iid]["rating"]["temperature"], True, consensus_weight
+    return ys, ms, ws, t, tm, tw
+
+
+def split(ids, human, val_frac, seed):
+    """Held-out split. With human labels: val = val_frac of the human-labelled
+    images, stratified by the human band, so the held-out metrics are against
+    the user, not against the evaluators the head distils. Without: random."""
+    rng = np.random.default_rng(seed)
+    band = {r["image"]: r["rating"]["band"] for r in human if r.get("rating", {}).get("band")}
+    if not band:
+        perm = rng.permutation(len(ids))
+        n_val = max(1, int(len(ids) * val_frac))
+        return perm[:n_val], perm[n_val:]
+    val = []
+    for b in sorted(set(band.values())):
+        idx = np.array([i for i, iid in enumerate(ids) if band.get(iid) == b])
+        if len(idx):
+            val += list(rng.permutation(idx)[: max(1, int(round(len(idx) * val_frac)))])
+    val = np.array(sorted(val))
+    tr = np.setdiff1d(np.arange(len(ids)), val)
+    return val, tr
 
 
 def _f1(y_true, y_pred, multi: bool):
@@ -118,18 +143,22 @@ def train(a) -> int:
     X = torch.tensor(z["emb"].astype(np.float32))
     combined = taxolib.read_jsonl(a.labels)
     human = taxolib.read_jsonl(a.human) if a.human else []
-    ys, ms, t, tm = _targets(tax, ids, combined, human, a.min_agree)
-
-    rng = np.random.default_rng(a.seed)
-    perm = rng.permutation(len(ids))
-    n_val = max(1, int(len(ids) * a.val_frac))
-    val, tr = perm[:n_val], perm[n_val:]
+    # Plan 05 §0.3: an image with a minor decision is never training data.
+    excluded = {r["image"] for r in combined if r.get("minor")}
+    if excluded:
+        keep = [i for i, iid in enumerate(ids) if iid not in excluded]
+        ids, X = [ids[i] for i in keep], X[keep]
+        combined = [r for r in combined if r["image"] not in excluded]
+        human = [r for r in human if r["image"] not in excluded]
+    ys, ms, ws, t, tm, tw = _targets(tax, ids, combined, human, a.min_agree, a.consensus_weight)
+    val, tr = split(ids, human, a.val_frac, a.seed)
 
     model = Head(X.shape[1], tax.nodes, a.hidden)
     opt = torch.optim.AdamW(model.parameters(), lr=a.lr, weight_decay=1e-2)
     Y = [torch.tensor(y) for y in ys]
     M = [torch.tensor(m) for m in ms]
-    T, TM = torch.tensor(t), torch.tensor(tm)
+    W = [torch.tensor(w) for w in ws]
+    T, TM, TW = torch.tensor(t), torch.tensor(tm), torch.tensor(tw)
     tr_t = torch.tensor(tr)
     t0 = time.perf_counter()
     for ep in range(a.epochs):
@@ -139,16 +168,20 @@ def train(a) -> int:
             bi = idx[b: b + a.batch]
             outs, tp = model(X[bi])
             loss = torch.zeros(())
-            for n, o, y, m in zip(tax.nodes, outs, Y, M):
+            for n, o, y, m, wt in zip(tax.nodes, outs, Y, M, W):
                 mm = m[bi]
                 if not mm.any():
                     continue
+                w = wt[bi][mm]
                 if n.kind == "multi":
-                    loss = loss + nn.functional.binary_cross_entropy_with_logits(o[mm], y[bi][mm])
+                    li = nn.functional.binary_cross_entropy_with_logits(o[mm], y[bi][mm], reduction="none").mean(1)
                 else:
-                    loss = loss + nn.functional.cross_entropy(o[mm], y[bi][mm].argmax(1))
-            if TM[bi].any():
-                loss = loss + 4 * nn.functional.mse_loss(tp[TM[bi]], T[bi][TM[bi]])
+                    li = nn.functional.cross_entropy(o[mm], y[bi][mm].argmax(1), reduction="none")
+                loss = loss + (li * w).sum() / w.sum()
+            tmb = TM[bi]
+            if tmb.any():
+                w = TW[bi][tmb]
+                loss = loss + 4 * (((tp[tmb] - T[bi][tmb]) ** 2) * w).sum() / w.sum()
             opt.zero_grad()
             loss.backward()
             opt.step()
@@ -171,6 +204,21 @@ def train(a) -> int:
                          "f1_macro_vs_labels": _f1(y[val][mv], pred, n.kind == "multi")}
     tv = tm[val]
     mae = float(np.abs(tp.numpy()[tv] - t[val][tv]).mean()) if tv.any() else None
+    # temperature → band against the human band on the held-out (default
+    # thresholds; the conformal fit is a separate, later step)
+    hb = {r["image"]: r["rating"]["band"] for r in human if r.get("rating", {}).get("band")}
+    band_metrics = None
+    vh = [(j, hb[ids[i]]) for j, i in enumerate(val) if ids[i] in hb]
+    if vh:
+        th = tax.thresholds()
+        pred = [taxolib.band_of(float(tp[j]), th) for j, _ in vh]
+        truth = [b for _, b in vh]
+        bands = list(tax.bands)
+        band_metrics = {"n_val_human": len(vh),
+                        "f1_macro": _f1(np.eye(len(bands))[[bands.index(b) for b in truth]],
+                                        np.array([bands.index(b) for b in pred]), False),
+                        "explicit_recall": (sum(1 for p, b in zip(pred, truth) if b == "explicit" and p == "explicit")
+                                            / max(1, truth.count("explicit")))}
 
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -181,7 +229,8 @@ def train(a) -> int:
         "nodes": [{"id": n.id, "kind": n.kind, "values": n.value_ids} for n in tax.nodes],
         "label_source": "human+consensus" if human else "consensus pseudo-labels (re-train on human labels)",
         "train": {"images": len(tr), "val": len(val), "epochs": a.epochs, "seconds": round(train_s, 2)},
-        "val_metrics": metrics, "val_temperature_mae": mae,
+        "val_metrics": metrics, "val_temperature_mae": mae, "val_band_vs_human": band_metrics,
+        "consensus_weight": a.consensus_weight, "excluded_minor": len(excluded),
         "val_ids": [ids[i] for i in val],
     }
     torch.save(model.state_dict(), out / "head.pt")
@@ -279,6 +328,7 @@ def main(argv=None) -> int:
     t.add_argument("--human")
     t.add_argument("--out", required=True)
     t.add_argument("--min-agree", type=int, default=2)
+    t.add_argument("--consensus-weight", type=float, default=0.3, help="loss weight of a consensus label (human = 1)")
     t.add_argument("--epochs", type=int, default=200)
     t.add_argument("--batch", type=int, default=256)
     t.add_argument("--hidden", type=int, default=512)

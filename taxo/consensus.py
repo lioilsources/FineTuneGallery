@@ -85,7 +85,8 @@ def minor_decision(tax: taxolib.Taxonomy, by_eval: dict[str, dict],
     """None | "quarantine" | "block". See server/taxonomy.go minorDecision."""
     mb = tax.minor_block
     th = thresholds or tax.thresholds()
-    minor = wd14_signal >= mb["min_conf"]
+    weak = set(mb.get("weak_evaluators", []))
+    minor = strong = wd14_signal >= mb["min_conf"]
     for e, labels in by_eval.items():
         lab = labels.get("person.age_group")
         if not lab:
@@ -93,12 +94,14 @@ def minor_decision(tax: taxolib.Taxonomy, by_eval: dict[str, dict],
         conf = 1.0 if e == "human" else _single_conf(lab)
         if lab["value"] in mb["values"] and conf >= mb["min_conf"]:
             minor = True
+            strong = strong or e not in weak
     if not minor:
         return None
     if ensemble is not None and ensemble.get("temperature") is not None:
         if ensemble["band"] == "safe" and not ensemble["unsure"]:
             return None
-        return "block"
+        # a signal only from a weak evaluator (SigLIP zero-shot) is reversible
+        return "block" if strong else "quarantine"
     if wd14_temp is not None and taxolib.band_of(wd14_temp, th) == "safe":
         return None
     return "quarantine"

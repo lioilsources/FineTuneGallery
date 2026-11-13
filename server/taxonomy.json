@@ -1,7 +1,7 @@
 {
   "generated_by": "taxo/gen_schema.py — do not edit, edit taxo/taxonomy.yaml",
   "version": 1,
-  "source_sha256": "6df4c4ce338e3bd96a1454160f3ba7341f28bb9d8a48745a5e43feb1deb0d76a",
+  "source_sha256": "6598a5739ea201da79c06c8a1dbaec6bdfcaf49526ddeefca69bd5621e9746a0",
   "bands": [
     "safe",
     "suggestive",
@@ -34,6 +34,9 @@
       "baby",
       "kindergarten uniform",
       "child on child"
+    ],
+    "weak_evaluators": [
+      "siglip"
     ]
   },
   "nodes": [

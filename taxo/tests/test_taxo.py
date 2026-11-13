@@ -124,6 +124,19 @@ class TestConformal(unittest.TestCase):
         self.assertLess(conformal.wilson_lower(98, 100), 0.98)
         self.assertGreater(conformal.wilson_lower(9990, 10000), 0.98)
 
+    def test_strata_report(self):
+        # hi: 320 explicit (enough for its own guard), lo: 300 safe, no explicit
+        tax = taxolib.load()
+        hi = [(0.8 + 0.0005 * i, "explicit", "calib:hi") for i in range(320)]
+        lo = [(0.02 + 0.0003 * i, "safe", "calib:lo") for i in range(300)]
+        res = conformal.fit([(s, b) for s, b, _ in hi + lo], tax, "human")
+        rep = conformal.strata_report(res["thresholds"], hi + lo, tax)
+        self.assertTrue(rep["calib:hi"]["explicit_guard_valid_here"])
+        self.assertFalse(rep["calib:lo"]["explicit_guard_valid_here"])
+        # 0 of 300 → rule of three, never "none"
+        self.assertAlmostEqual(rep["calib:lo"]["explicit_share_upper95"], 1 - 0.05 ** (1 / 300), places=4)
+        self.assertEqual(rep["calib:lo"]["label_counts"]["safe"], 300)
+
 
 if __name__ == "__main__":
     unittest.main()

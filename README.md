@@ -258,7 +258,11 @@ general/sensitive/questionable/explicit) v ensemblu s
 *kteréhokoli* hodnotitele (conf ≥ 0.30), WD14 tag `child`/`loli`/`aged down`/…
 nebo lidský label + cokoli jiného než jisté `safe` (pásmo ≠ safe nebo unsure)
 = `block`: obrázek zmizí z gallery view (tedy ze seznamu, Evalu, datasetů,
-podobných), blob vrací 451, záznam v `taxonomy_audit`. Když hodnotil zatím jen
+podobných), blob vrací 451, záznam v `taxonomy_audit`. Výjimka: když signál
+dává **jen slabý hodnotitel** (`minor_block.weak_evaluators`, dnes SigLIP
+zero-shot, který se s WD14 na věku shodl u 33 z 16 420 obrázků galerie), je
+to místo bloku `quarantine` (rozhodnutí 13. 11. 2026). Signál od kohokoli
+dalšího (WD14 tag, VLM, hlava, člověk) z karantény udělá blok. Když hodnotil zatím jen
 WD14 z captionu, je to `quarantine` (taky skryté), kterou uvolní jen ensemble
 s jistým `safe`; `block` se neuvolní nikdy (ani lidským „safe"). Blok kontroluje
 captioner po každém WD14 captionu, import, lidský label, změna prahů a
@@ -312,6 +316,30 @@ python taxo/head.py train --emb emb.npz --labels combined.jsonl --out head/
 python taxo/conformal.py fit --scores combined.jsonl --labels human.jsonl --out bands.json
 python -m unittest discover -s taxo/tests
 ```
+
+**Kalibrace na SPARKu (UC25).** Hodnotitelé běží jako dávka brokeru
+(`taxo/run_eval.sh`, projekt `finetune`, priorita 10), výstupy zůstávají v
+`taxo-data/private/` na SPARKu (mimo git, práva 700). Do galerie jde
+import přes veřejný hostname a CF Access s vlastním service tokenem dávky
+plus `WORKER_TOKEN` galerie, který otevře jen import a prahy (proměnné v
+`.env.example` a v hlavičce `taxo/push.py`). Fronta labelů pro kalibraci se
+losuje zvlášť ve dvou stratech podle WD14 ratingu, protože garance platí
+jen pro populaci, ze které se labely losovaly:
+
+```
+finetune-gallery taxobench -calib-hi 450 -calib-lo 300 -seed 25   # hi = WD14 explicit+questionable, lo = zbytek
+finetune-gallery taxobench -export-human > human.jsonl             # jen id a labely
+taxo/run_train.sh taxo-data/human.jsonl                           # na SPARKu přes broker: hlava + bands.json + report
+finetune-gallery taxobench -stratum calib                          # κ hodnotitelů proti člověku
+```
+
+`conformal.py fit` k fitu přidá `strata`: recall a precision per stratum,
+jestli má stratum dost explicit na vlastní guard, a horní mez podílu
+explicit, který stratum skrývá (při 0 nálezech pravidlo tří, nikdy „žádné“).
+Pásma se fitují nad teplotou ensemblu, ten se z labelů neučí. Hlava se
+trénuje s vahou člověk 1 / konsenzus 0,3, held-out je stratifikovaný podle
+lidského pásma a obrázky s rozhodnutím o nezletilosti do tréninku nejdou.
+Online jde hlava až s vlastní kalibrací na obrázcích, které neviděla.
 
 **Prompt lint pro Ol1nLLM (návrh, neimplementováno):** před generací
 předpovědět očekávanou teplotu z promptu (malý textový klasifikátor nad

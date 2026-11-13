@@ -66,6 +66,9 @@ func main() {
 	if taxoPublicView && !taxoEnabled {
 		log.Fatal("FINETUNE_PUBLIC_VIEW=1 needs FINETUNE_TAXONOMY=1 (no temperature, no safe view)")
 	}
+	// The GPU batch's own token (calibration.go): opens the taxonomy import
+	// and the thresholds, nothing else. Empty = no worker access.
+	workerToken = env("WORKER_TOKEN", "")
 
 	for _, sub := range []string{"images", "thumbs", "datasets", "stylemaps", "db", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
@@ -164,7 +167,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           logRequests(mux),
+		Handler:           logRequests(workerAuth(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	log.Printf("finetune-gallery listening on %s (data: %s, tagger: %s, llm gateway: %q, comfyui: %q)",

@@ -11,3 +11,9 @@ train/work/
 *.log
 .DS_Store
 __pycache__/
+# UC25: calibration data and venvs live on the GPU box only, never in git
+taxo-data/
+taxo/.venv/
+tagger-cache/
+run/
+.venv/

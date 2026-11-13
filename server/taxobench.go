@@ -21,7 +21,9 @@ import (
 // judge and earns trust the same way.
 //
 //	finetune-gallery taxobench -sample 300 -borderline 60 -seed 1   # labelling sample
-//	finetune-gallery taxobench [-stratum random|borderline|all] [-json]
+//	finetune-gallery taxobench [-stratum random|borderline|calib|all] [-json]
+//	finetune-gallery taxobench -calib-hi 450 -calib-lo 300 -seed 25  # UC25 calibration sample
+//	finetune-gallery taxobench -export-human > human.jsonl
 //
 // The sample is drawn before anyone sees an answer: proportional to the
 // gallery's model × style strata, plus a borderline stratum (rating unsure or
@@ -108,8 +110,10 @@ func taxoKappa(db *sql.DB, stratum string) ([]taxoAgreement, error) {
 		scope = ` AND image_id IN (SELECT image_id FROM taxonomy_label_queue WHERE stratum LIKE 'random:%')`
 	case "borderline":
 		scope = ` AND image_id IN (SELECT image_id FROM taxonomy_label_queue WHERE stratum = 'borderline')`
+	case "calib":
+		scope = ` AND image_id IN (SELECT image_id FROM taxonomy_label_queue WHERE stratum LIKE 'calib:%')`
 	default:
-		return nil, fmt.Errorf("stratum must be all|random|borderline")
+		return nil, fmt.Errorf("stratum must be all|random|borderline|calib")
 	}
 	// answers[evaluator][node][image] = set of values
 	answers := map[string]map[string]map[string][]string{}
@@ -344,7 +348,10 @@ func runTaxobench(args []string) int {
 	sample := fs.Int("sample", 0, "draw a labelling sample of this size into the label queue")
 	borderline := fs.Int("borderline", 60, "of which from the borderline stratum")
 	seed := fs.Int64("seed", 1, "sampling seed")
-	stratum := fs.String("stratum", "random", "κ over: random | borderline | all")
+	stratum := fs.String("stratum", "random", "κ over: random | borderline | calib | all")
+	calibHiN := fs.Int("calib-hi", 0, "UC25 calibration sample: this many WD14 explicit+questionable images")
+	calibLoN := fs.Int("calib-lo", 0, "UC25 calibration sample: this many WD14 sensitive+general images")
+	exportH := fs.Bool("export-human", false, "write the human labels as JSONL to stdout (taxo/conformal.py --labels, taxo/head.py --human)")
 	asJSON := fs.Bool("json", false, "print the κ table as JSON")
 	dataDir := fs.String("data", env("FINETUNE_DATA", "/data"), "gallery data dir")
 	if err := fs.Parse(args); err != nil {
@@ -357,6 +364,25 @@ func runTaxobench(args []string) int {
 	}
 	defer db.Close()
 
+	if *exportH {
+		n, err := exportHuman(db, os.Stdout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "taxobench: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "exported %d human-labelled images\n", n)
+		return 0
+	}
+	if *calibHiN > 0 || *calibLoN > 0 {
+		counts, err := sampleCalibQueue(db, *calibHiN, *calibLoN, *seed)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "taxobench: %v\n", err)
+			return 1
+		}
+		fmt.Printf("label queue += %s %d of %d, %s %d of %d (seed %d) — label them in the gallery: filter \"label queue\"\n",
+			calibHi, counts[calibHi], counts[calibHi+"/available"], calibLo, counts[calibLo], counts[calibLo+"/available"], *seed)
+		return 0
+	}
 	if *sample > 0 {
 		counts, err := sampleLabelQueue(db, *sample, *borderline, *seed)
 		if err != nil {

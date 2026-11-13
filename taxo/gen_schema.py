@@ -42,6 +42,7 @@ def server_doc(tax: taxolib.Taxonomy) -> dict:
             "values": tax.minor_block["values"],
             "min_conf": tax.minor_block["min_conf"],
             "wd14_signals": [taxolib.normalize_tag(t) for t in tax.minor_block["wd14_signals"]],
+            "weak_evaluators": tax.minor_block.get("weak_evaluators", []),
         },
         "nodes": [
             {
