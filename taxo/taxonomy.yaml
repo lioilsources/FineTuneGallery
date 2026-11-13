@@ -47,6 +47,12 @@ minor_block:
   min_conf: 0.30
   # WD14 tags that are a minor signal on their own (spaces or underscores).
   wd14_signals: [child, loli, shota, aged_down, baby, kindergarten_uniform, child_on_child]
+  # Evaluators whose age signal alone is too weak for an irreversible block
+  # (decided by Olin 13. 11. 2026: SigLIP zero-shot age agreed with WD14 on 33
+  # of 16 420 gallery images). A signal only from these → quarantine (hidden,
+  # reversible: a better age evaluator can re-decide). Any other signal — WD14
+  # tag, VLM, head, human — next to it or alone is still a block.
+  weak_evaluators: [siglip]
 
 # --- nodes -----------------------------------------------------------------
 # kind: single (one value) | multi (any subset) | ordinal (single, ordered —

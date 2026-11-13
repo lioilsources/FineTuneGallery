@@ -1,5 +1,5 @@
 {
- "comment": "Shared by taxo/tests (Python) and server/taxonomy_test.go \u2014 the minor-block rule on synthetic label vectors. No imagery.",
+ "comment": "Shared by taxo/tests (Python) and server/taxonomy_test.go — the minor-block rule on synthetic label vectors. No imagery.",
  "thresholds": {
   "safe_max": 0.2,
   "suggestive_max": 0.45,
@@ -64,7 +64,7 @@
    "want": "block"
   },
   {
-   "name": "child nsfw blocks",
+   "name": "child nsfw from siglip alone is a quarantine",
    "labels": {
     "siglip": {
      "person.age_group": {
@@ -80,7 +80,7 @@
     "unsure": false
    },
    "wd14_temp": null,
-   "want": "block"
+   "want": "quarantine"
   },
   {
    "name": "child explicit blocks",
@@ -140,7 +140,7 @@
    "want": "block"
   },
   {
-   "name": "one evaluator says child, others adult: still blocks",
+   "name": "only siglip says child, others adult: quarantine",
    "labels": {
     "vlm": {
      "person.age_group": {
@@ -168,7 +168,7 @@
     "unsure": false
    },
    "wd14_temp": null,
-   "want": "block"
+   "want": "quarantine"
   },
   {
    "name": "child below min_conf is ignored",
@@ -295,6 +295,68 @@
    },
    "wd14_temp": null,
    "want": null
+  },
+  {
+   "name": "siglip child plus a wd14 minor tag blocks",
+   "labels": {
+    "siglip": {
+     "person.age_group": {
+      "value": "child",
+      "conf": 0.5
+     }
+    }
+   },
+   "wd14_signal": 0.8,
+   "ensemble": {
+    "temperature": 0.6,
+    "band": "nsfw",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "vlm teen with explicit blocks even without siglip",
+   "labels": {
+    "vlm": {
+     "person.age_group": {
+      "value": "teen",
+      "conf": 0.4
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.95,
+    "band": "explicit",
+    "unsure": false
+   },
+   "wd14_temp": null,
+   "want": "block"
+  },
+  {
+   "name": "human child next to siglip blocks",
+   "labels": {
+    "siglip": {
+     "person.age_group": {
+      "value": "teen",
+      "conf": 0.4
+     }
+    },
+    "human": {
+     "person.age_group": {
+      "value": "child"
+     }
+    }
+   },
+   "wd14_signal": 0.0,
+   "ensemble": {
+    "temperature": 0.3,
+    "band": "suggestive",
+    "unsure": true
+   },
+   "wd14_temp": null,
+   "want": "block"
   }
  ]
 }

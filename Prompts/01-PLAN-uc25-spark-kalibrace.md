@@ -99,7 +99,7 @@ Zastav se u rozhodnutí 7. Postup a pravidla jsou v plánu 05, §1b a §0.2–0.
 2. `FINETUNE_TAXONOMY=1` na NAS: **ano**.
 3. Cesta importu: rozhodl Director (viz výš). Olin založí service token v CF Zero Trust, přidá ho do Access policy aplikace finetune, vygeneruje `WORKER_TOKEN` a zapíše hodnoty do `.env` na NAS a na SPARKu.
 4. Kopie obrázků na SPARKu už existuje. Po importu a tréninku ji jde smazat (hlava se trénuje z embeddingů); smazat jen na pokyn Olina.
-5. **Otevřené:** 2 298 bloků jen ze SigLIP věku. Doporučení: importovat tak, jak je (blok skryje, nemaže; plán 05 chybuje na bezpečnou stranu), a obrázky s rozhodnutím o nezletilosti smazat i z kopie na SPARKu.
+5. 2 298 bloků jen ze SigLIP věku: **karanténa místo bloku** (Olin, 13. 11.). `minor_block.weak_evaluators: [siglip]`; signál od kohokoli dalšího je dál blok. Import tedy dá 0 bloků a 2 298 karantén (skryté, vratné). Do kalibrační fronty ani do tréninku nejdou.
 6. Hlava online až s vlastní kalibrací (doporučeno, čeká na potvrzení).
 7. Generování 1b: odpadá.
 

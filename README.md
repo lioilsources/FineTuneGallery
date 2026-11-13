@@ -258,7 +258,11 @@ general/sensitive/questionable/explicit) v ensemblu s
 *kteréhokoli* hodnotitele (conf ≥ 0.30), WD14 tag `child`/`loli`/`aged down`/…
 nebo lidský label + cokoli jiného než jisté `safe` (pásmo ≠ safe nebo unsure)
 = `block`: obrázek zmizí z gallery view (tedy ze seznamu, Evalu, datasetů,
-podobných), blob vrací 451, záznam v `taxonomy_audit`. Když hodnotil zatím jen
+podobných), blob vrací 451, záznam v `taxonomy_audit`. Výjimka: když signál
+dává **jen slabý hodnotitel** (`minor_block.weak_evaluators`, dnes SigLIP
+zero-shot, který se s WD14 na věku shodl u 33 z 16 420 obrázků galerie), je
+to místo bloku `quarantine` (rozhodnutí 13. 11. 2026). Signál od kohokoli
+dalšího (WD14 tag, VLM, hlava, člověk) z karantény udělá blok. Když hodnotil zatím jen
 WD14 z captionu, je to `quarantine` (taky skryté), kterou uvolní jen ensemble
 s jistým `safe`; `block` se neuvolní nikdy (ani lidským „safe"). Blok kontroluje
 captioner po každém WD14 captionu, import, lidský label, změna prahů a

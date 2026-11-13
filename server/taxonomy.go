@@ -82,6 +82,8 @@ type taxonomyDoc struct {
 		Values      []string `json:"values"`
 		MinConf     float64  `json:"min_conf"`
 		WD14Signals []string `json:"wd14_signals"`
+		// a signal only from these is a quarantine, never a block
+		WeakEvaluators []string `json:"weak_evaluators"`
 	} `json:"minor_block"`
 	Nodes []taxoNode `json:"nodes"`
 }
@@ -188,8 +190,10 @@ type minorInput struct {
 func minorDecision(in minorInput, th bandThresholds) (decision, reason string) {
 	mb := taxonomy.MinorBlock
 	var why []string
+	strong := false // a signal from anything but a weak evaluator
 	if in.WD14Signal >= mb.MinConf {
 		why = append(why, fmt.Sprintf("wd14 minor tag %.2f", in.WD14Signal))
+		strong = true
 	}
 	for _, v := range in.Votes {
 		conf := v.Conf
@@ -198,6 +202,9 @@ func minorDecision(in minorInput, th bandThresholds) (decision, reason string) {
 		}
 		if slices.Contains(mb.Values, v.Value) && conf >= mb.MinConf {
 			why = append(why, fmt.Sprintf("age_group=%s by %s (%.2f)", v.Value, v.Evaluator, conf))
+			if !slices.Contains(mb.WeakEvaluators, v.Evaluator) {
+				strong = true
+			}
 		}
 	}
 	if len(why) == 0 {
@@ -210,6 +217,9 @@ func minorDecision(in minorInput, th bandThresholds) (decision, reason string) {
 		state := in.Band
 		if in.Unsure {
 			state += ", unsure"
+		}
+		if !strong {
+			return "quarantine", strings.Join(why, "; ") + "; rating " + state + "; weak evaluator only"
 		}
 		return "block", strings.Join(why, "; ") + "; rating " + state
 	}
