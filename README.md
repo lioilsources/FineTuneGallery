@@ -313,6 +313,30 @@ python taxo/conformal.py fit --scores combined.jsonl --labels human.jsonl --out 
 python -m unittest discover -s taxo/tests
 ```
 
+**Kalibrace na SPARKu (UC25).** Hodnotitelé běží jako dávka brokeru
+(`taxo/run_eval.sh`, projekt `finetune`, priorita 10), výstupy zůstávají v
+`taxo-data/private/` na SPARKu (mimo git, práva 700). Do galerie jde
+import přes veřejný hostname a CF Access s vlastním service tokenem dávky
+plus `WORKER_TOKEN` galerie, který otevře jen import a prahy (proměnné v
+`.env.example` a v hlavičce `taxo/push.py`). Fronta labelů pro kalibraci se
+losuje zvlášť ve dvou stratech podle WD14 ratingu, protože garance platí
+jen pro populaci, ze které se labely losovaly:
+
+```
+finetune-gallery taxobench -calib-hi 450 -calib-lo 300 -seed 25   # hi = WD14 explicit+questionable, lo = zbytek
+finetune-gallery taxobench -export-human > human.jsonl             # jen id a labely
+taxo/run_train.sh taxo-data/human.jsonl                           # na SPARKu přes broker: hlava + bands.json + report
+finetune-gallery taxobench -stratum calib                          # κ hodnotitelů proti člověku
+```
+
+`conformal.py fit` k fitu přidá `strata`: recall a precision per stratum,
+jestli má stratum dost explicit na vlastní guard, a horní mez podílu
+explicit, který stratum skrývá (při 0 nálezech pravidlo tří, nikdy „žádné“).
+Pásma se fitují nad teplotou ensemblu, ten se z labelů neučí. Hlava se
+trénuje s vahou člověk 1 / konsenzus 0,3, held-out je stratifikovaný podle
+lidského pásma a obrázky s rozhodnutím o nezletilosti do tréninku nejdou.
+Online jde hlava až s vlastní kalibrací na obrázcích, které neviděla.
+
 **Prompt lint pro Ol1nLLM (návrh, neimplementováno):** před generací
 předpovědět očekávanou teplotu z promptu (malý textový klasifikátor nad
 dvojicemi prompt → naměřená teplota z této galerie) → varování/blok podle
