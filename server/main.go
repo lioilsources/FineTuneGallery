@@ -69,6 +69,7 @@ func main() {
 	// The GPU batch's own token (calibration.go): opens the taxonomy import
 	// and the thresholds, nothing else. Empty = no worker access.
 	workerToken = env("WORKER_TOKEN", "")
+	workerAccessClients = parseClientIDs(env("WORKER_ACCESS_CLIENT_IDS", ""))
 
 	for _, sub := range []string{"images", "thumbs", "datasets", "stylemaps", "db", "tmp"} {
 		if err := os.MkdirAll(filepath.Join(dataDir, sub), 0o755); err != nil {
