@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/subtle"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -28,6 +29,44 @@ var workerRoutes = map[string]bool{
 	"PUT /api/taxonomy/thresholds": true,
 }
 
+// workerAccessClients (WORKER_ACCESS_CLIENT_IDS, comma list) are the CF
+// Access service tokens of batches. Access lets such a token through to the
+// whole hostname; here a request carrying one is held to workerRoutes, so
+// the batch's CF token alone cannot read or change the gallery either.
+var workerAccessClients = map[string]bool{}
+
+func parseClientIDs(v string) map[string]bool {
+	out := map[string]bool{}
+	for _, id := range strings.Split(v, ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+// accessClientID is the service token's Client ID from the Access JWT
+// (claim common_name), "" for a person or no Access at all. The signature is
+// not checked: this only narrows what a request may do, and a request that
+// bypasses Access (the LAN port) can drop the header anyway.
+func accessClientID(r *http.Request) string {
+	parts := strings.Split(r.Header.Get("Cf-Access-Jwt-Assertion"), ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		CommonName string `json:"common_name"`
+	}
+	if json.Unmarshal(raw, &claims) != nil {
+		return ""
+	}
+	return claims.CommonName
+}
+
 // machineOnly routes are refused without the worker token once one is
 // configured: nobody imports evaluator answers from a browser.
 var machineOnly = map[string]bool{"POST /api/taxonomy/import": true}
@@ -35,6 +74,10 @@ var machineOnly = map[string]bool{"POST /api/taxonomy/import": true}
 func workerAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		route := r.Method + " " + r.URL.Path
+		if cid := accessClientID(r); workerAccessClients[cid] && !workerRoutes[route] && route != "GET /healthz" {
+			writeErr(w, http.StatusForbidden, "this Access service token opens only the worker routes")
+			return
+		}
 		bearer, hasBearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		switch {
 		case hasBearer:

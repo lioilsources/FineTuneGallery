@@ -3,11 +3,52 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
+
+func accessJWT(claims string) string {
+	enc := base64.RawURLEncoding.EncodeToString
+	return enc([]byte(`{"alg":"RS256"}`)) + "." + enc([]byte(claims)) + ".sig"
+}
+
+// A batch's CF Access service token reaches the whole hostname through
+// Access; the gallery holds it to the worker routes.
+func TestBatchAccessTokenOpensOnlyWorkerRoutes(t *testing.T) {
+	workerAccessClients = parseClientIDs(" batch.access ,")
+	t.Cleanup(func() { workerAccessClients = map[string]bool{} })
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	h := workerAuth(ok)
+	batch := accessJWT(`{"common_name":"batch.access","type":"app"}`)
+	other := accessJWT(`{"common_name":"editor.access"}`)
+	person := accessJWT(`{"email":"owner@example.com"}`)
+	cases := []struct {
+		method, path, jwt string
+		want              int
+	}{
+		{"POST", "/api/taxonomy/import", batch, 204},
+		{"PUT", "/api/taxonomy/thresholds", batch, 204},
+		{"GET", "/healthz", batch, 204},
+		{"GET", "/api/images", batch, 403},
+		{"GET", "/api/taxonomy/thresholds", batch, 403},
+		{"DELETE", "/api/sessions/s1", batch, 403},
+		{"GET", "/api/images", other, 204}, // other service tokens are untouched
+		{"GET", "/api/images", person, 204},
+		{"GET", "/api/images", "garbage", 204},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(c.method, c.path, nil)
+		req.Header.Set("Cf-Access-Jwt-Assertion", c.jwt)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != c.want {
+			t.Errorf("%s %s → %d, want %d", c.method, c.path, rr.Code, c.want)
+		}
+	}
+}
 
 func TestWorkerTokenOpensOnlyItsRoutes(t *testing.T) {
 	workerToken = "w-secret"
