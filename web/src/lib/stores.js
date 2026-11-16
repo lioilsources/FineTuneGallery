@@ -96,6 +96,7 @@ export const emptyFilter = Object.freeze({
   score: 'all', // 'all' | 'liked' | 'disliked' | 'unrated'
   session: '',
   prompt: '', // words that must all appear in the prompt (case-insensitive)
+  promptBody: '', // row id of the lab's prompt file (CSV/YAML), set from Detail
   style: '', // art-style preset id (lab matrices are one style per row)
   epoch: '', // style facets (meta.styleFacets): one style has all three
   artist: '',
@@ -127,6 +128,7 @@ export function filterToParams(f) {
   else if (f.score === 'unrated') p.set('unrated', '1');
   if (f.session) p.set('session', String(f.session));
   if (f.prompt.trim()) p.set('prompt', f.prompt.trim());
+  if (f.promptBody) p.set('prompt_body', f.promptBody);
   if (f.style) p.set('style', f.style);
   if (f.epoch) p.set('epoch', f.epoch);
   if (f.artist) p.set('artist', f.artist);

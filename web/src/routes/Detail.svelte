@@ -282,6 +282,13 @@
     else navigate('/');
   }
 
+  // Every picture planned from the same row of the lab's prompt file.
+  function openPromptBody() {
+    if (!node || !node.promptBody) return;
+    galleryFilter.update((f) => ({ ...f, promptBody: node.promptBody }));
+    navigate('/');
+  }
+
   function openSession() {
     if (!img || img.sessionId == null) return;
     galleryFilter.update((f) => ({ ...f, session: String(img.sessionId) }));
@@ -530,6 +537,15 @@
             {node.prompt || '—'}
             {#if node.prompt}<button class="chip mini ghost" onclick={copyPrompt}>copy</button>{/if}
           </dd>
+          {#if node.promptBody}
+            <dt>CSV prompt</dt>
+            <dd>
+              <button class="chip mini ghost" title="All images from this row of the prompt file" onclick={openPromptBody}
+                >{node.promptBody}</button
+              >
+              {#if node.promptBodyText}<p class="body-text">{node.promptBodyText}</p>{/if}
+            </dd>
+          {/if}
           {#if node.positivePrefix}
             <dt>prefix</dt>
             <dd>
@@ -575,6 +591,9 @@
 {/if}
 
 <style>
+  .body-text {
+    margin: 4px 0 0;
+  }
   .judge-v {
     font-size: 11px;
     margin-left: 4px;
