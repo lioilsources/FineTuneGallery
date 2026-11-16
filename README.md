@@ -469,6 +469,7 @@ POST /api/ingest/manifest                  → {"needed":[sha…]}
 PUT  /api/ingest/images/{sha256}           raw PNG
 POST /api/ingest/sessions/{id}/finalize    → {"images":N,"newBlobs":M}
 GET  /api/images?model=&aspect=&score=&style=&lora=&lora_strength=&pose=
+                &session=<id>&session_prefix=showcase/   (začátek názvu session)
                 &prompt=<slova>&epoch=&artist=&technique=
                 &criterion=pose_adherence:1|-1|none&judge=pose_adherence:disagree|unrated&cursor=
 GET  /api/images/{id}                      detail + parentChain
