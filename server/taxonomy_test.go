@@ -186,6 +186,8 @@ func (f *taxoFix) do(method, path string, body any) *httptest.ResponseRecorder {
 	mux.HandleFunc("GET /api/images/{id}/taxonomy", f.s.handleImageTaxonomy)
 	mux.HandleFunc("PUT /api/images/{id}/taxonomy", f.s.handleImageTaxonomyPut)
 	mux.HandleFunc("GET /api/images/{id}/similar", f.s.handleSimilar)
+	mux.HandleFunc("GET /api/images/{id}", f.s.handleImageDetail)
+	mux.HandleFunc("GET /api/sessions", f.s.handleSessions)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	return rec
@@ -597,5 +599,106 @@ func TestDatasetTempAdmit(t *testing.T) {
 	}
 	if d.Blocked != 1 || d.Excluded != 3 || d.Unrated != 1 || *d.Max != 0.9 {
 		t.Fatalf("%+v", d)
+	}
+}
+
+func TestSharedViewHoldsForDetailTaxonomySessionsAndSimilar(t *testing.T) {
+	f := newTaxoFix(t)
+	f.exec(`INSERT INTO sessions (id, title, model_id) VALUES ('s2', 'hot only', 'pony')`)
+	safe, _ := f.addImage()
+	safe2, _ := f.addImage()
+	hot, _ := f.addImage()
+	unsure, _ := f.addImage()
+	f.exec(`UPDATE nodes SET session_id = 's2' WHERE id = ?`, "n"+hot)
+	// safe2 was derived from hot: in the shared view the chain must stop.
+	f.exec(`UPDATE nodes SET parent_id = ?, source_image_id = ? WHERE id = ?`, "n"+hot, hot, "n"+safe2)
+	r := f.do("POST", "/api/taxonomy/import", map[string]any{"records": []any{
+		rec(safe, 0.05, false, "adult", "blonde"),
+		rec(safe2, 0.04, false, "adult", "blonde"),
+		rec(hot, 0.80, false, "adult", "blonde"),
+		rec(unsure, 0.05, true, "adult", "blonde"),
+	}})
+	if r.Code != 200 {
+		t.Fatalf("import → %d %s", r.Code, r.Body.String())
+	}
+	for id, v := range map[string][]float32{safe: {1, 0, 0}, safe2: {0.9, 0.1, 0}, hot: {0.95, 0, 0.05}, unsure: {0.8, 0.2, 0}} {
+		f.exec(`INSERT INTO image_embeddings (image_id, model, dim, vec) VALUES (?, 'siglip2', 3, ?)`, id, encodeVec(v))
+	}
+	embIndex.invalidate()
+
+	code := func(path string) int { return f.do("GET", path, nil).Code }
+	for _, c := range []struct {
+		path string
+		want int
+	}{
+		{"/api/images/" + safe + "?view=shared", 200},
+		{"/api/images/" + hot + "?view=shared", 404},
+		{"/api/images/" + unsure + "?view=shared", 404},
+		{"/api/images/" + hot, 200}, // private view unchanged
+		{"/api/images/" + hot + "?view=public", 400},
+		{"/api/images/" + safe + "/taxonomy?view=shared", 200},
+		{"/api/images/" + hot + "/taxonomy?view=shared", 404},
+		{"/api/images/" + unsure + "/taxonomy?view=shared", 404},
+		{"/api/images/" + hot + "/taxonomy", 200},
+		{"/api/images/" + hot + "/similar?view=shared", 404},
+		{"/api/images/" + safe + "/similar?view=shared", 200},
+	} {
+		if got := code(c.path); got != c.want {
+			t.Errorf("GET %s → %d, want %d", c.path, got, c.want)
+		}
+	}
+
+	// Similar: neither the hot nor the unsure neighbour in the shared view.
+	var sim struct {
+		Items []map[string]any `json:"items"`
+	}
+	json.Unmarshal(f.do("GET", "/api/images/"+safe+"/similar?view=shared", nil).Body.Bytes(), &sim)
+	if len(sim.Items) != 1 || sim.Items[0]["id"] != safe2 {
+		t.Errorf("shared similar: %v", sim.Items)
+	}
+
+	// Detail chain stops at the not-safe parent.
+	var det struct {
+		ParentChain []map[string]any `json:"parentChain"`
+	}
+	json.Unmarshal(f.do("GET", "/api/images/"+safe2+"?view=shared", nil).Body.Bytes(), &det)
+	if len(det.ParentChain) != 0 {
+		t.Errorf("shared chain leaks: %v", det.ParentChain)
+	}
+	json.Unmarshal(f.do("GET", "/api/images/"+safe2, nil).Body.Bytes(), &det)
+	if len(det.ParentChain) != 1 || det.ParentChain[0]["imageId"] != hot {
+		t.Errorf("private chain: %v", det.ParentChain)
+	}
+
+	// Sessions: s2 holds only the hot image, so it is not listed; s1 counts
+	// only its shared images.
+	var sess []map[string]any
+	json.Unmarshal(f.do("GET", "/api/sessions?view=shared", nil).Body.Bytes(), &sess)
+	if len(sess) != 1 || sess[0]["id"] != "s1" || sess[0]["imageCount"] != float64(2) {
+		t.Errorf("shared sessions: %v", sess)
+	}
+	json.Unmarshal(f.do("GET", "/api/sessions", nil).Body.Bytes(), &sess)
+	if len(sess) != 2 {
+		t.Errorf("private sessions: %v", sess)
+	}
+
+	// Public mode forces the same without the parameter.
+	taxoPublicView = true
+	if got := code("/api/images/" + hot); got != 404 {
+		t.Errorf("public detail of hot → %d", got)
+	}
+	if got := code("/api/images/" + hot + "/taxonomy"); got != 404 {
+		t.Errorf("public taxonomy of hot → %d", got)
+	}
+	taxoPublicView = false
+
+	// Without the taxonomy the shared view cannot be honoured: 400, not a
+	// silently private answer.
+	taxoEnabled = false
+	if got := code("/api/images/" + safe + "?view=shared"); got != 400 {
+		t.Errorf("shared detail with the flag off → %d", got)
+	}
+	if got := code("/api/sessions?view=shared"); got != 400 {
+		t.Errorf("shared sessions with the flag off → %d", got)
 	}
 }

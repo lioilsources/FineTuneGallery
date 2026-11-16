@@ -316,7 +316,10 @@ do `image_embeddings` (float32 BLOB; modernc/sqlite neumí načíst sqlite-vec,
 /api/images/{id}/similar`.
 
 **Sdílené a veřejné pohledy.** `view=shared` = jen `safe` a ne `unsure`
-(neohodnocené taky ne). `FINETUNE_PUBLIC_VIEW=1` to vynutí pro všechny
+(neohodnocené taky ne). Platí stejně pro seznam, detail, `…/taxonomy`,
+`…/similar` (i výchozí obrázek) a `/api/sessions` (jen session se sdíleným
+obrázkem, počet sdílených); jiný obrázek vrátí 404 a `parentChain` končí
+u prvního předka, který sdílený není. `FINETUNE_PUBLIC_VIEW=1` to vynutí pro všechny
 seznamy i bloby (instance pro StyleMap packy, merch, market) a bez taxonomie
 odmítne nastartovat. Kohya export: `PUT /api/datasets/{id} {"tempMax":0.3}`
 vyřadí nad prahem / unsure / neohodnocené; README datasetu nese limit, max

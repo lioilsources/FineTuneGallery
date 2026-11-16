@@ -347,6 +347,18 @@ func ids2strings(ids []any) []string {
 // GET /api/images/{id}
 func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	shared, bad := sharedRequested(r)
+	if bad != "" {
+		writeErr(w, http.StatusBadRequest, bad)
+		return
+	}
+	// The shared view (view=shared or public mode) shows only what the list
+	// would: safe and not unsure. Anything else is not found, not forbidden,
+	// so the answer does not confirm that the id exists.
+	if shared && !imageShared(s.db, id) {
+		writeErr(w, http.StatusNotFound, "image not found")
+		return
+	}
 	it := &galleryItem{Aspects: []string{}, Caption: map[string]bool{}}
 	var width, height *int64
 	err := s.db.QueryRow(`
@@ -556,6 +568,11 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt)
 		}
 		if err != nil {
+			break
+		}
+		// In the shared view the chain stops at the first ancestor the
+		// shared list would not show; its prompt and hash stay private.
+		if shared && !imageShared(s.db, e.ImageID) {
 			break
 		}
 		chain = append(chain, e)
@@ -774,11 +791,28 @@ func (s *server) handleAspects(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/sessions
 func (s *server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`
+	shared, bad := sharedRequested(r)
+	if bad != "" {
+		writeErr(w, http.StatusBadRequest, bad)
+		return
+	}
+	q := `
 		SELECT s.id, s.title, s.model_id, s.last_ingested_at,
 		       (SELECT COUNT(*) FROM images i JOIN nodes n ON n.id = i.node_id
 		        WHERE n.session_id = s.id AND i.blob_present = 1)
-		FROM sessions s ORDER BY s.last_ingested_at DESC`)
+		FROM sessions s ORDER BY s.last_ingested_at DESC`
+	if shared {
+		// Only sessions with at least one shared image, counted as the
+		// shared list counts them; the title of any other stays private.
+		q = `
+		SELECT * FROM (
+		  SELECT s.id, s.title, s.model_id, s.last_ingested_at,
+		         (SELECT COUNT(*) FROM gallery g JOIN image_temperature it ON it.image_id = g.id
+		          WHERE g.session_id = s.id AND it.band = 'safe' AND it.unsure = 0) AS n
+		  FROM sessions s ORDER BY s.last_ingested_at DESC)
+		WHERE n > 0`
+	}
+	rows, err := s.db.Query(q)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
