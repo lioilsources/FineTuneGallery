@@ -373,6 +373,29 @@ func blobSharedSafe(db *sql.DB, sha string) bool {
 	return err == nil
 }
 
+// sharedRequested: does this request ask for (or does the server force) the
+// shared view? The same rule as the list filter: view=shared|private, the
+// shared view needs the taxonomy, public mode forces it. bad is a 400 message.
+func sharedRequested(r *http.Request) (shared bool, bad string) {
+	view := r.URL.Query().Get("view")
+	if view != "" && view != "shared" && view != "private" {
+		return false, "view must be shared|private"
+	}
+	shared = view == "shared" || taxoPublicView
+	if shared && !taxoEnabled {
+		return false, errTaxoDisabled.Error()
+	}
+	return shared, ""
+}
+
+// imageShared: is this gallery image (not blocked) rated safe and not unsure?
+func imageShared(db *sql.DB, id string) bool {
+	var one int
+	err := db.QueryRow(`SELECT 1 FROM gallery g JOIN image_temperature it ON it.image_id = g.id
+		WHERE g.id = ? AND it.band = 'safe' AND it.unsure = 0`, id).Scan(&one)
+	return err == nil
+}
+
 /* ---------------- gallery filter ---------------- */
 
 // taxoFilter appends the taxonomy conditions of galleryFilter. Parameters:
@@ -737,8 +760,14 @@ func (s *server) handleImageTaxonomy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	shared, bad := sharedRequested(r)
+	if bad != "" {
+		writeErr(w, http.StatusBadRequest, bad)
+		return
+	}
 	var one int
-	if s.db.QueryRow(`SELECT 1 FROM gallery WHERE id = ?`, id).Scan(&one) != nil {
+	if s.db.QueryRow(`SELECT 1 FROM gallery WHERE id = ?`, id).Scan(&one) != nil ||
+		(shared && !imageShared(s.db, id)) {
 		writeErr(w, http.StatusNotFound, "image not found")
 		return
 	}
@@ -1164,6 +1193,19 @@ func (s *server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
+	shared, bad := sharedRequested(r)
+	if bad != "" {
+		writeErr(w, http.StatusBadRequest, bad)
+		return
+	}
+	// The query image itself goes through the same visibility as its hits: a
+	// blocked or (in the shared view) not-safe image is not a starting point.
+	var one int
+	if s.db.QueryRow(`SELECT 1 FROM gallery WHERE id = ?`, id).Scan(&one) != nil ||
+		(shared && !imageShared(s.db, id)) {
+		writeErr(w, http.StatusNotFound, "image not found")
+		return
+	}
 	limit := 24
 	if n, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && n > 0 && n <= 200 {
 		limit = n
@@ -1186,7 +1228,7 @@ func (s *server) handleSimilar(w http.ResponseWriter, r *http.Request) {
 		}
 		var sha string
 		q := `SELECT g.sha256 FROM gallery g WHERE g.id = ?`
-		if taxoPublicView || r.URL.Query().Get("view") == "shared" {
+		if shared {
 			q = `SELECT g.sha256 FROM gallery g JOIN image_temperature it ON it.image_id = g.id
 				WHERE g.id = ? AND it.band = 'safe' AND it.unsure = 0`
 		}

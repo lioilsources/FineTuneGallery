@@ -38,7 +38,14 @@ type galleryItem struct {
 	CreatedAt    *string         `json:"createdAt"`
 	IsImg2img    bool            `json:"isImg2img"`
 	Origin       string          `json:"origin"`
-	Taxo         *taxoSummary    `json:"taxo,omitempty"` // only with FINETUNE_TAXONOMY=1
+	// Lineage over nodes (lineage.go): the root of the parent_id chain, its
+	// origin (null when the chain is broken), and whether any upstream node,
+	// this one included, is an upload.
+	RootNodeID       *string      `json:"rootNodeId"`
+	RootOrigin       *string      `json:"rootOrigin"`
+	LineageHasUpload bool         `json:"lineageHasUpload"`
+	LineageComplete  bool         `json:"lineageComplete"`
+	Taxo             *taxoSummary `json:"taxo,omitempty"` // only with FINETUNE_TAXONOMY=1
 }
 
 // galleryFilter builds the WHERE clause shared by the list endpoint and
@@ -78,6 +85,11 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 	}
 	// "none" is the control arm of the medium A/B, so it has to be selectable:
 	// without it the rows the experiment compares against are unreachable.
+	// The row of the lab's prompt file (CSV/YAML) the picture came from.
+	if v := get("prompt_body"); v != "" {
+		conds = append(conds, "g.prompt_body = ?")
+		args = append(args, v)
+	}
 	if v := get("medium"); v != "" {
 		if v == "none" {
 			conds = append(conds, "COALESCE(g.medium_id, '') = ''")
@@ -193,6 +205,17 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 				WHERE ic.image_id = g.id AND ic.criterion = ?)`)
 			args = append(args, name, judgeFilterVersion, name)
 		}
+	}
+	// lineage=text: nothing uploaded anywhere upstream, and the whole chain is
+	// in the gallery — the gate for "made from text only".
+	switch get("lineage") {
+	case "":
+	case "text":
+		conds = append(conds, lineageTextCond())
+	case "upload":
+		conds = append(conds, lineageUploadCond())
+	default:
+		return "", nil, "lineage must be text|upload"
 	}
 	if v := get("from"); v != "" {
 		conds = append(conds, "g.created_at >= ?")
@@ -339,6 +362,20 @@ func (s *server) decorateItems(items []*galleryItem) error {
 	}
 	rows.Close()
 
+	nodeIDs := make([]string, 0, len(items))
+	for _, it := range items {
+		nodeIDs = append(nodeIDs, it.NodeID)
+	}
+	lin, err := lineages(s.db, nodeIDs)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		li := lin[it.NodeID]
+		it.RootNodeID, it.RootOrigin = li.RootNodeID, li.RootOrigin
+		it.LineageHasUpload, it.LineageComplete = li.HasUpload, li.Complete
+	}
+
 	if taxoEnabled {
 		for id, sm := range s.taxoSummaries(ids2strings(ids)) {
 			byID[id].Taxo = sm
@@ -358,6 +395,18 @@ func ids2strings(ids []any) []string {
 // GET /api/images/{id}
 func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	shared, bad := sharedRequested(r)
+	if bad != "" {
+		writeErr(w, http.StatusBadRequest, bad)
+		return
+	}
+	// The shared view (view=shared or public mode) shows only what the list
+	// would: safe and not unsure. Anything else is not found, not forbidden,
+	// so the answer does not confirm that the id exists.
+	if shared && !imageShared(s.db, id) {
+		writeErr(w, http.StatusNotFound, "image not found")
+		return
+	}
 	it := &galleryItem{Aspects: []string{}, Caption: map[string]bool{}}
 	var width, height *int64
 	err := s.db.QueryRow(`
@@ -394,6 +443,7 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 			prompt, origin                    string
 			modelID, lora, styleID, poseID    *string
 			negative, prefix                  *string
+			body, bodyText                    *string
 			samplerName, scheduler, createdAt *string
 			seed, nw, nh, steps               *int64
 			cfg, denoise, loraStrength        *float64
@@ -403,12 +453,14 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 			SELECT prompt, origin, model_id, lora_name, lora_strength, style_id,
 			       pose_id, is_repose, negative_prompt,
 			       positive_prefix, sampler_name, scheduler, created_at,
-			       seed, width, height, steps, cfg, denoise
+			       seed, width, height, steps, cfg, denoise,
+			       prompt_body, prompt_body_text
 			FROM nodes WHERE id = ?`, it.NodeID).Scan(
 			&prompt, &origin, &modelID, &lora, &loraStrength, &styleID,
 			&poseID, &isRepose, &negative,
 			&prefix, &samplerName, &scheduler, &createdAt,
-			&seed, &nw, &nh, &steps, &cfg, &denoise)
+			&seed, &nw, &nh, &steps, &cfg, &denoise,
+			&body, &bodyText)
 		if err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
@@ -420,7 +472,7 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 			"positivePrefix": prefix, "samplerName": samplerName,
 			"scheduler": scheduler, "createdAt": createdAt, "seed": seed,
 			"width": nw, "height": nh, "steps": steps, "cfg": cfg,
-			"denoise": denoise,
+			"denoise": denoise, "promptBody": body, "promptBodyText": bodyText,
 		}
 	}
 
@@ -535,6 +587,7 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 		ImageID string `json:"imageId"`
 		Sha256  string `json:"sha256"`
 		Prompt  string `json:"prompt"`
+		Origin  string `json:"origin"`
 	}
 	chain := []chainEntry{}
 	nodeID := it.NodeID
@@ -551,22 +604,27 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 		if sourceImageID != nil {
 			// Prefer the exact source image; fall back to the parent's first image.
 			err = s.db.QueryRow(`
-				SELECT i.id, i.sha256, n.id, n.prompt FROM images i
+				SELECT i.id, i.sha256, n.id, n.prompt, n.origin FROM images i
 				JOIN nodes n ON n.id = i.node_id
 				WHERE i.id = ? AND i.blob_present = 1`, *sourceImageID).
-				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt)
+				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt, &e.Origin)
 		} else {
 			err = sql.ErrNoRows
 		}
 		if err != nil {
 			err = s.db.QueryRow(`
-				SELECT i.id, i.sha256, n.id, n.prompt FROM images i
+				SELECT i.id, i.sha256, n.id, n.prompt, n.origin FROM images i
 				JOIN nodes n ON n.id = i.node_id
 				WHERE n.id = ? AND i.blob_present = 1
 				ORDER BY i.idx LIMIT 1`, *parentID).
-				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt)
+				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt, &e.Origin)
 		}
 		if err != nil {
+			break
+		}
+		// In the shared view the chain stops at the first ancestor the
+		// shared list would not show; its prompt and hash stay private.
+		if shared && !imageShared(s.db, e.ImageID) {
 			break
 		}
 		chain = append(chain, e)
@@ -785,11 +843,28 @@ func (s *server) handleAspects(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/sessions
 func (s *server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.Query(`
+	shared, bad := sharedRequested(r)
+	if bad != "" {
+		writeErr(w, http.StatusBadRequest, bad)
+		return
+	}
+	q := `
 		SELECT s.id, s.title, s.model_id, s.last_ingested_at,
 		       (SELECT COUNT(*) FROM images i JOIN nodes n ON n.id = i.node_id
 		        WHERE n.session_id = s.id AND i.blob_present = 1)
-		FROM sessions s ORDER BY s.last_ingested_at DESC`)
+		FROM sessions s ORDER BY s.last_ingested_at DESC`
+	if shared {
+		// Only sessions with at least one shared image, counted as the
+		// shared list counts them; the title of any other stays private.
+		q = `
+		SELECT * FROM (
+		  SELECT s.id, s.title, s.model_id, s.last_ingested_at,
+		         (SELECT COUNT(*) FROM gallery g JOIN image_temperature it ON it.image_id = g.id
+		          WHERE g.session_id = s.id AND it.band = 'safe' AND it.unsure = 0) AS n
+		  FROM sessions s ORDER BY s.last_ingested_at DESC)
+		WHERE n > 0`
+	}
+	rows, err := s.db.Query(q)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

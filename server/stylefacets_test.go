@@ -91,3 +91,22 @@ func TestStyleFacetsMetaOnlyOffersIngestedValues(t *testing.T) {
 		t.Errorf("techniques = %v, styles = %d", m.Techniques, len(m.Styles))
 	}
 }
+
+// The lab sends the prompt-file row; detail shows it and prompt_body= filters by it.
+func TestIngestKeepsPromptFileRow(t *testing.T) {
+	s := newTestServer(t)
+	ingestJSON(t, s, strings.Replace(labManifest, `"styleId":"ukiyoe",`,
+		`"styleId":"ukiyoe","promptBody":"arabesque","promptBodyText":"1girl, arabesque",`, 1))
+	markBlobsPresent(t, s, shaA, shaB)
+	if n := countWhere(t, s, map[string][]string{"prompt_body": {"arabesque"}}); n != 1 {
+		t.Errorf("prompt_body=arabesque = %d", n)
+	}
+	var body, text string
+	if err := s.db.QueryRow(`SELECT prompt_body, prompt_body_text FROM nodes WHERE id='n1'`).
+		Scan(&body, &text); err != nil {
+		t.Fatal(err)
+	}
+	if body != "arabesque" || text != "1girl, arabesque" {
+		t.Errorf("uzel = %q / %q", body, text)
+	}
+}

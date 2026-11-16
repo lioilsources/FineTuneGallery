@@ -39,7 +39,16 @@ curl localhost:8097/healthz     # {"status":"ok"}
 cp .env.example .env            # DATA_DIR=/volume1/finetune
 docker compose up -d --build
 curl localhost:8092/healthz     # {"status":"ok"} (odkomentuj ports v compose)
+
+# překlad promptu + VL soudce: v .env LLM_GATEWAY_URL=http://<spark>:8080
+docker compose up -d
+curl -s localhost:8092/api/meta | jq .translator   # enabled:true, vocab > 0
+curl -s localhost:8092/api/judge | jq .enabled      # true
 ```
+
+`LLM_GATEWAY_URL` je v `.env`, ne v compose: prázdné = překladač i soudce
+vypnuté a appka posílá prózu jako dřív. Zapnutí je rozhodnutí deploye, ne
+změna kódu, a adresa SPARKu nejde do veřejného repa.
 
 Cloudflare je **předprovisionováno** (2026-07-19): dedikovaný tunel
 `finetune-nas` (`8a88b8b7-dc02-4feb-8c64-e972aa50fd28`, config v
@@ -87,6 +96,11 @@ V galerii je řádek **prompt**: textové pole a čtyři výběry.
   appky). Epochy jsou podle data, ne podle evropských dějin umění, např. aztécký
   kodex je v „1400–1600“. Styly bez epochy jsou čisté techniky (akvarel, linoryt).
   Tradice, které nejdou datovat, mají „Traditional cultures“.
+- **CSV prompt:** obrázek z labu naplánovaný ze souboru promptů (CSV nebo YAML)
+  nese id řádku (`promptBody`) a text, který ten řádek dal modelu
+  (`promptBodyText`). Detail je ukazuje zvlášť od složeného promptu a klik na id
+  vyfiltruje všechny obrázky z téhož řádku. Starší obrázky to mají až po novém
+  exportu běhu z labu (id uzlů jsou deterministická, nic se nezdvojí).
 - Nový styl, který v mapě chybí, funguje dál přes `style=`. `GET /api/meta`
   ho vypíše v `styleFacets.unclassified`, pak ho doplň do JSON.
 
@@ -315,8 +329,18 @@ do `image_embeddings` (float32 BLOB; modernc/sqlite neumí načíst sqlite-vec,
 20k × 1152 se prohledá hrubou silou v Go za milisekundy) → `GET
 /api/images/{id}/similar`.
 
+**Linie.** Každá položka seznamu i detailu nese `rootNodeId` (vrchol řetězu
+`parent_id`), `rootOrigin` (`generated|upload`, `null` u přerušeného řetězu),
+`lineageHasUpload` a `lineageComplete`. Počítá se rekurzivně přes `nodes`
+(rodič i uzel zdrojového obrázku img2img), ne přes obrázky s blobem, takže
+upload u kořene je vidět i tam, kde `parentChain` končí dřív.
+`lineage=text` pustí jen úplnou linii bez jediného uploadu.
+
 **Sdílené a veřejné pohledy.** `view=shared` = jen `safe` a ne `unsure`
-(neohodnocené taky ne). `FINETUNE_PUBLIC_VIEW=1` to vynutí pro všechny
+(neohodnocené taky ne). Platí stejně pro seznam, detail, `…/taxonomy`,
+`…/similar` (i výchozí obrázek) a `/api/sessions` (jen session se sdíleným
+obrázkem, počet sdílených); jiný obrázek vrátí 404 a `parentChain` končí
+u prvního předka, který sdílený není. `FINETUNE_PUBLIC_VIEW=1` to vynutí pro všechny
 seznamy i bloby (instance pro StyleMap packy, merch, market) a bez taxonomie
 odmítne nastartovat. Kohya export: `PUT /api/datasets/{id} {"tempMax":0.3}`
 vyřadí nad prahem / unsure / neohodnocené; README datasetu nese limit, max
@@ -470,9 +494,10 @@ PUT  /api/ingest/images/{sha256}           raw PNG
 POST /api/ingest/sessions/{id}/finalize    → {"images":N,"newBlobs":M}
 GET  /api/images?model=&aspect=&score=&style=&lora=&lora_strength=&pose=
                 &session=<id>&session_prefix=showcase/   (začátek názvu session)
-                &prompt=<slova>&epoch=&artist=&technique=
+                &prompt=<slova>&epoch=&artist=&technique=&prompt_body=<řádek CSV>
                 &criterion=pose_adherence:1|-1|none&judge=pose_adherence:disagree|unrated&cursor=
-GET  /api/images/{id}                      detail + parentChain
+                &lineage=text|upload       text = celá linie v galerii, žádný předek upload
+GET  /api/images/{id}                      detail + parentChain (každý krok s origin)
 PUT  /api/images/{id}/rating|aspects|criteria|caption
 POST /api/images/{id}/autocaption
 GET  /api/datasets · POST …/items/from-filter · POST …/build · GET …/download
