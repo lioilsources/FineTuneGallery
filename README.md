@@ -315,6 +315,13 @@ do `image_embeddings` (float32 BLOB; modernc/sqlite neumí načíst sqlite-vec,
 20k × 1152 se prohledá hrubou silou v Go za milisekundy) → `GET
 /api/images/{id}/similar`.
 
+**Linie.** Každá položka seznamu i detailu nese `rootNodeId` (vrchol řetězu
+`parent_id`), `rootOrigin` (`generated|upload`, `null` u přerušeného řetězu),
+`lineageHasUpload` a `lineageComplete`. Počítá se rekurzivně přes `nodes`
+(rodič i uzel zdrojového obrázku img2img), ne přes obrázky s blobem, takže
+upload u kořene je vidět i tam, kde `parentChain` končí dřív.
+`lineage=text` pustí jen úplnou linii bez jediného uploadu.
+
 **Sdílené a veřejné pohledy.** `view=shared` = jen `safe` a ne `unsure`
 (neohodnocené taky ne). `FINETUNE_PUBLIC_VIEW=1` to vynutí pro všechny
 seznamy i bloby (instance pro StyleMap packy, merch, market) a bez taxonomie
@@ -471,7 +478,8 @@ POST /api/ingest/sessions/{id}/finalize    → {"images":N,"newBlobs":M}
 GET  /api/images?model=&aspect=&score=&style=&lora=&lora_strength=&pose=
                 &prompt=<slova>&epoch=&artist=&technique=
                 &criterion=pose_adherence:1|-1|none&judge=pose_adherence:disagree|unrated&cursor=
-GET  /api/images/{id}                      detail + parentChain
+                &lineage=text|upload       text = celá linie v galerii, žádný předek upload
+GET  /api/images/{id}                      detail + parentChain (každý krok s origin)
 PUT  /api/images/{id}/rating|aspects|criteria|caption
 POST /api/images/{id}/autocaption
 GET  /api/datasets · POST …/items/from-filter · POST …/build · GET …/download

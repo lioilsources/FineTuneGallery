@@ -38,7 +38,14 @@ type galleryItem struct {
 	CreatedAt    *string         `json:"createdAt"`
 	IsImg2img    bool            `json:"isImg2img"`
 	Origin       string          `json:"origin"`
-	Taxo         *taxoSummary    `json:"taxo,omitempty"` // only with FINETUNE_TAXONOMY=1
+	// Lineage over nodes (lineage.go): the root of the parent_id chain, its
+	// origin (null when the chain is broken), and whether any upstream node,
+	// this one included, is an upload.
+	RootNodeID       *string      `json:"rootNodeId"`
+	RootOrigin       *string      `json:"rootOrigin"`
+	LineageHasUpload bool         `json:"lineageHasUpload"`
+	LineageComplete  bool         `json:"lineageComplete"`
+	Taxo             *taxoSummary `json:"taxo,omitempty"` // only with FINETUNE_TAXONOMY=1
 }
 
 // galleryFilter builds the WHERE clause shared by the list endpoint and
@@ -182,6 +189,17 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 				WHERE ic.image_id = g.id AND ic.criterion = ?)`)
 			args = append(args, name, judgeFilterVersion, name)
 		}
+	}
+	// lineage=text: nothing uploaded anywhere upstream, and the whole chain is
+	// in the gallery — the gate for "made from text only".
+	switch get("lineage") {
+	case "":
+	case "text":
+		conds = append(conds, lineageTextCond())
+	case "upload":
+		conds = append(conds, lineageUploadCond())
+	default:
+		return "", nil, "lineage must be text|upload"
 	}
 	if v := get("from"); v != "" {
 		conds = append(conds, "g.created_at >= ?")
@@ -327,6 +345,20 @@ func (s *server) decorateItems(items []*galleryItem) error {
 		byID[id].Caption[kind] = true
 	}
 	rows.Close()
+
+	nodeIDs := make([]string, 0, len(items))
+	for _, it := range items {
+		nodeIDs = append(nodeIDs, it.NodeID)
+	}
+	lin, err := lineages(s.db, nodeIDs)
+	if err != nil {
+		return err
+	}
+	for _, it := range items {
+		li := lin[it.NodeID]
+		it.RootNodeID, it.RootOrigin = li.RootNodeID, li.RootOrigin
+		it.LineageHasUpload, it.LineageComplete = li.HasUpload, li.Complete
+	}
 
 	if taxoEnabled {
 		for id, sm := range s.taxoSummaries(ids2strings(ids)) {
@@ -524,6 +556,7 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 		ImageID string `json:"imageId"`
 		Sha256  string `json:"sha256"`
 		Prompt  string `json:"prompt"`
+		Origin  string `json:"origin"`
 	}
 	chain := []chainEntry{}
 	nodeID := it.NodeID
@@ -540,20 +573,20 @@ func (s *server) handleImageDetail(w http.ResponseWriter, r *http.Request) {
 		if sourceImageID != nil {
 			// Prefer the exact source image; fall back to the parent's first image.
 			err = s.db.QueryRow(`
-				SELECT i.id, i.sha256, n.id, n.prompt FROM images i
+				SELECT i.id, i.sha256, n.id, n.prompt, n.origin FROM images i
 				JOIN nodes n ON n.id = i.node_id
 				WHERE i.id = ? AND i.blob_present = 1`, *sourceImageID).
-				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt)
+				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt, &e.Origin)
 		} else {
 			err = sql.ErrNoRows
 		}
 		if err != nil {
 			err = s.db.QueryRow(`
-				SELECT i.id, i.sha256, n.id, n.prompt FROM images i
+				SELECT i.id, i.sha256, n.id, n.prompt, n.origin FROM images i
 				JOIN nodes n ON n.id = i.node_id
 				WHERE n.id = ? AND i.blob_present = 1
 				ORDER BY i.idx LIMIT 1`, *parentID).
-				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt)
+				Scan(&e.ImageID, &e.Sha256, &e.NodeID, &e.Prompt, &e.Origin)
 		}
 		if err != nil {
 			break
