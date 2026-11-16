@@ -398,3 +398,45 @@ func TestImageDetailCarriesStyleAndLoraStrength(t *testing.T) {
 		t.Error("isRepose se v detailu ztratilo")
 	}
 }
+
+func TestFilterBySessionTitlePrefix(t *testing.T) {
+	s := newTestServer(t)
+	ingestJSON(t, s, `{"session":{"id":"s1","title":"showcase/baletky","modelId":"pony","updatedAt":"x"},
+	  "nodes":[{"id":"n1","prompt":"p","images":[{"id":"i1","sha256":"`+shaA+`","size":1,"idx":0}]}]}`)
+	ingestJSON(t, s, `{"session":{"id":"s2","title":"Showcase lab","modelId":"pony","updatedAt":"x"},
+	  "nodes":[{"id":"n2","prompt":"p","images":[{"id":"i2","sha256":"`+shaB+`","size":1,"idx":0}]}]}`)
+	ingestJSON(t, s, `{"session":{"id":"s3","title":"show_ase/x","modelId":"pony","updatedAt":"x"},
+	  "nodes":[{"id":"n3","prompt":"p","images":[{"id":"i3","sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","size":1,"idx":0}]}]}`)
+	markBlobsPresent(t, s, shaA, shaB, "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+
+	count := func(prefix string) []string {
+		req := httptest.NewRequest("GET", "/api/images?session_prefix="+prefix, nil)
+		rec := httptest.NewRecorder()
+		s.handleImagesList(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("%s → %d %s", prefix, rec.Code, rec.Body.String())
+		}
+		var out struct {
+			Items []struct {
+				ID string `json:"id"`
+			} `json:"items"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		ids := []string{}
+		for _, it := range out.Items {
+			ids = append(ids, it.ID)
+		}
+		return ids
+	}
+	// Case-sensitive, and the slash is part of the prefix.
+	if got := count("showcase/"); len(got) != 1 || got[0] != "i1" {
+		t.Errorf("showcase/ → %v", got)
+	}
+	// '_' is not a wildcard: "show_" matches only the literal title.
+	if got := count("show_"); len(got) != 1 || got[0] != "i3" {
+		t.Errorf("show_ → %v", got)
+	}
+	if got := count("nic/"); len(got) != 0 {
+		t.Errorf("nic/ → %v", got)
+	}
+}

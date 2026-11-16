@@ -66,6 +66,17 @@ func galleryFilter(q map[string][]string) (where string, args []any, bad string)
 		conds = append(conds, "g.session_id = ?")
 		args = append(args, v)
 	}
+	// session_prefix=showcase/ picks sessions by the start of their title,
+	// e.g. the ones curated for the shop window. Compared with substr, not
+	// LIKE, so '%' and '_' in a title are plain characters.
+	if v := get("session_prefix"); v != "" {
+		if len(v) > 200 {
+			return "", nil, "session_prefix is limited to 200 bytes"
+		}
+		conds = append(conds, `g.session_id IN (SELECT id FROM sessions
+			WHERE substr(title, 1, length(?)) = ?)`)
+		args = append(args, v, v)
+	}
 	// A lab matrix is 40 styles across N models; without this the only thing
 	// separating two rows is a phrase buried in the prompt text.
 	if v := get("style"); v != "" {
