@@ -7,7 +7,7 @@
 #   cd ~/deploy/FineTuneGallery && docker compose -f docker-compose.spark.yml up -d --build
 #
 # finetune-gallery on JODA reaches this over LAN — TAGGER_URL in
-# docker-compose.yml points at http://192.168.88.66:8097.
+# docker-compose.yml points at http://<spark-host>:8097.
 #
 # Cache (~450 MB, the wd-swinv2-tagger-v3 ONNX weights) was copied from
 # JODA's docker volume on first deploy, not re-downloaded. A fresh deploy

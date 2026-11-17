@@ -32,7 +32,7 @@ import (
 // started this can no longer happen silently.
 type Catalog struct {
 	db       *sql.DB
-	comfyURL string // e.g. http://192.168.88.66:8188; "" skips the GPU box
+	comfyURL string // e.g. http://<spark-host>:8188; "" skips the GPU box
 	client   *http.Client
 	snap     atomic.Pointer[CatalogSnapshot]
 }
