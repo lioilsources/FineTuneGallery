@@ -17,3 +17,21 @@ taxo/.venv/
 tagger-cache/
 run/
 .venv/
+# devconv:start
+.env.*
+!.env.example
+*.p8
+*.p12
+*.jks
+key.properties
+.claude/settings.local.json
+CLAUDE.local.md
+bin/
+*.test
+*.out
+node_modules/
+dist/
+.astro/
+.svelte-kit/
+*.pyc
+# devconv:end
