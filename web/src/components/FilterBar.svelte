@@ -144,7 +144,7 @@
     return fc && fc.labelCs ? fc.labelCs : id;
   }
 
-  const summary = $derived.by(() => {
+  const summaryParts = $derived.by(() => {
     const parts = [];
     if (f.model) {
       const m = ($meta.models || []).find((x) => x.id === f.model);
@@ -180,8 +180,12 @@
     for (const pr of f.taxo ? f.taxo.split(',') : []) parts.push(pr.replace(':', ' = '));
     if (f.ratingUnsure) parts.push('rating unsure');
     if (f.labelQueue) parts.push('label queue');
-    return parts.join(' · ');
+    return parts;
   });
+  const summary = $derived(summaryParts.join(' · '));
+
+  // Phones: filters fold into one row so the grid gets the screen.
+  let open = $state(false);
 
   // inline "new aspect" mini-form
   let addingAspect = $state(false);
@@ -217,7 +221,20 @@
   ];
 </script>
 
-<div class="filterbar">
+<div class="filterbar" class:collapsed={!open}>
+  <div class="filter-row mobile-row">
+    <button class="chip" class:active={summaryParts.length > 0} aria-expanded={open} onclick={() => (open = !open)}
+      >Filtry{summaryParts.length ? ` (${summaryParts.length})` : ''} {open ? '▴' : '▾'}</button
+    >
+    <span class="mobile-count">{$galleryState.items.length}{$galleryState.nextCursor ? '+' : ''}</span>
+    {#if summary}
+      <span class="summary mobile-summary">{summary}</span>
+    {/if}
+    {#if anyActive}
+      <button class="chip ghost" onclick={clearAll}>clear</button>
+    {/if}
+  </div>
+
   <div class="filter-row">
     <select class="sel" value={f.model} onchange={(e) => setF({ model: e.target.value })} title="Model">
       <option value="">All models</option>
