@@ -315,6 +315,40 @@ button {
   color: var(--text);
 }
 
+/* Phones: one compact row; the full bar opens on demand. */
+.mobile-row {
+  display: none;
+}
+@media (max-width: 700px) {
+  .filterbar {
+    padding: 6px 10px;
+  }
+  .filterbar .mobile-row {
+    display: flex;
+    flex-wrap: nowrap;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .filterbar.collapsed > .filter-row:not(.mobile-row) {
+    display: none;
+  }
+  .filterbar:not(.collapsed) {
+    max-height: 75vh;
+    overflow-y: auto;
+  }
+  .mobile-count {
+    font-variant-numeric: tabular-nums;
+  }
+  .mobile-summary {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+}
+
 /* ---------------- gallery grid ---------------- */
 
 .gallery {
